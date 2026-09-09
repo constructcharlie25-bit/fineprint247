@@ -1,0 +1,181 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FinePrint — AI contract risk scanner for freelancers</title>
+<meta name="description" content="Paste a client contract, get a plain-English risk report in seconds. Built for freelancers and small agencies who sign without a lawyer.">
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+
+<nav class="nav">
+  <div class="wrap nav-inner">
+    <a class="brand" href="/">Fine<span>Print</span></a>
+    <div class="nav-links">
+      <a class="hide-sm" href="#how">How it works</a>
+      <a class="hide-sm" href="#pricing">Pricing</a>
+      <a class="hide-sm" href="#faq">FAQ</a>
+      <a class="btn small" href="/scan.html">Scan a contract</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>Read the fine print<br>before you sign it.</h1>
+    <p class="lede">Paste any client contract and get a plain-English risk report in seconds — the risky clauses, why they matter, and what to ask for instead. Built for freelancers and small agencies.</p>
+    <div class="hero-cta">
+      <a class="btn" href="/scan.html">Scan a contract free</a>
+      <a class="btn ghost" href="#waitlist">Join the waitlist</a>
+    </div>
+    <div><span class="demo-note">Try it now — no signup, demo mode included</span></div>
+  </div>
+</header>
+
+<section class="block" id="how">
+  <div class="wrap">
+    <h2>How it works</h2>
+    <p class="sub">From contract to clarity in under a minute.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="num">1</div>
+        <h3>Paste or upload</h3>
+        <p>Drop in your contract text, or upload the PDF or Word file your client sent you.</p>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <h3>Get your risk score</h3>
+        <p>FinePrint reads every clause and scores the agreement 0–100, flagging high, medium, and low risks.</p>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <h3>Fix what matters</h3>
+        <p>Each flag comes with a plain-English explanation and a practical suggestion for what to negotiate.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="pricing" style="background:var(--soft)">
+  <div class="wrap">
+    <h2>Simple pricing</h2>
+    <p class="sub">Cheaper than one hour of a lawyer's time. Less than your coffee budget, even.</p>
+    <div class="pricing">
+      <div class="price-card">
+        <h3>Single scan</h3>
+        <div class="price">$5 <small>one-time</small></div>
+        <ul>
+          <li>1 full contract risk report</li>
+          <li>Risk score + flagged clauses</li>
+          <li>Copy or download your report</li>
+        </ul>
+        <button class="btn ghost" data-pay="single">Buy a scan</button>
+      </div>
+      <div class="price-card featured">
+        <span class="tag">Most popular</span>
+        <h3>Unlimited</h3>
+        <div class="price">$29 <small>/ month</small></div>
+        <ul>
+          <li>Unlimited contract scans</li>
+          <li>Everything in single scans</li>
+          <li>Cancel anytime</li>
+        </ul>
+        <button class="btn" data-pay="subscription">Go unlimited</button>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="faq">
+  <div class="wrap">
+    <h2>Questions</h2>
+    <p class="sub">The short answers.</p>
+    <div class="faq">
+      <details>
+        <summary>Is this legal advice?</summary>
+        <p>No. FinePrint spots common contractual risks and explains them in plain English, but it is not a law firm and nothing here is legal advice. For high-stakes agreements, talk to a licensed attorney.</p>
+      </details>
+      <details>
+        <summary>What kinds of contracts can I scan?</summary>
+        <p>Client service agreements, MSAs, SOWs, contractor agreements, NDAs — anything written. Paste the text or upload a PDF or DOCX.</p>
+      </details>
+      <details>
+        <summary>Who is it for?</summary>
+        <p>Freelancers, independent contractors, and small agency owners who regularly sign client paperwork without a lawyer on call.</p>
+      </details>
+      <details>
+        <summary>Is my contract kept private?</summary>
+        <p>Your text is sent securely for analysis and is never sold or shared. We don't train models on your contracts.</p>
+      </details>
+      <details>
+        <summary>What does the report include?</summary>
+        <p>An overall risk score (0–100), a plain-English summary, and every flagged clause with its risk level, why it matters, and what to negotiate.</p>
+      </details>
+      <details>
+        <summary>Can I try it free?</summary>
+        <p>Yes — hit "Scan a contract" and try the built-in demo on a sample agreement. No signup, no credit card.</p>
+      </details>
+    </div>
+  </div>
+</section>
+
+<section class="block" id="waitlist">
+  <div class="wrap">
+    <div class="waitlist-box">
+      <h2>Get launch updates</h2>
+      <p class="sub" style="margin-bottom:0">We're opening paid plans soon. Leave your email and we'll let you know — plus early-bird pricing.</p>
+      <form class="waitlist-form" id="waitlistForm">
+        <input type="email" id="waitlistEmail" placeholder="you@example.com" required aria-label="Email address">
+        <button class="btn" type="submit">Notify me</button>
+      </form>
+      <div class="form-msg" id="waitlistMsg"></div>
+    </div>
+
+    <div class="disclaimer">
+      <strong>Not legal advice.</strong> FinePrint is an informational tool, not a law firm. Reports highlight common contract risks in plain English but are not legal advice and create no attorney–client relationship. Consult a licensed attorney for advice about your specific situation.
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>© 2026 FinePrint. All rights reserved.</span>
+    <span>Not a law firm. Not legal advice.</span>
+  </div>
+</footer>
+
+<script src="/js/scan.js"></script>
+<script>
+(function () {
+  var form = document.getElementById('waitlistForm');
+  var emailEl = document.getElementById('waitlistEmail');
+  var msg = document.getElementById('waitlistMsg');
+  form.addEventListener('submit', async function (e) {
+    e.preventDefault();
+    msg.textContent = '';
+    msg.className = 'form-msg';
+    try {
+      var r = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailEl.value })
+      });
+      if (r.ok) {
+        msg.textContent = "You're on the list — we'll be in touch.";
+        msg.classList.add('ok');
+        emailEl.value = '';
+      } else {
+        var d = await r.json().catch(function(){ return {}; });
+        msg.textContent = d.message || 'Something went wrong. Please try again.';
+        msg.classList.add('err');
+      }
+    } catch (err) {
+      msg.textContent = 'Could not reach the server. Please try again.';
+      msg.classList.add('err');
+    }
+  });
+})();
+</script>
+</body>
+</html>
