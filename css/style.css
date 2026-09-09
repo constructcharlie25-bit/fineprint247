@@ -209,7 +209,7 @@ input[type=file] { font-size: .95rem; }
 
 /* Responsive */
 @media (max-width: 640px) {
-  .steps, .pricing { grid-template-columns: 1fr; }
+  .steps, .pricing, .stories { grid-template-columns: 1fr; }
   .waitlist-form { flex-direction: column; }
   .hero { padding: 48px 0 36px; }
   .nav-links a.hide-sm { display: none; }
@@ -229,4 +229,79 @@ input[type=file] { font-size: .95rem; }
   display: none; background: #e6f4ea; border: 1px solid #a3d9b1;
   color: #1a5c2e; padding: 12px 16px; border-radius: var(--radius);
   margin-bottom: 16px; font-weight: 600;
+}
+
+/* Comparison table ("Why not just use ChatGPT?") */
+.compare-wrap { overflow-x: auto; margin: 0 0 20px; }
+.compare {
+  width: 100%; max-width: 780px; margin: 0 auto;
+  border-collapse: separate; border-spacing: 0;
+  background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
+  overflow: hidden; font-size: .95rem; min-width: 560px;
+}
+.compare th, .compare td { padding: 14px 16px; text-align: left; vertical-align: top; }
+.compare thead th {
+  background: var(--ink); color: #fff; font-size: 1rem;
+}
+.compare thead th:nth-child(2) { background: var(--accent); }
+.compare tbody tr:nth-child(even) { background: var(--soft); }
+.compare td span { color: var(--muted); font-size: .85rem; }
+.compare .yes { color: var(--low); font-weight: 600; }
+.compare .no { color: var(--muted); }
+.compare-note { text-align: center; color: var(--muted); max-width: 640px; margin: 0 auto 24px; font-size: .95rem; }
+
+/* Testimonials (placeholders until real feedback arrives) */
+.stories { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+.story {
+  margin: 0; background: #fff; border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 22px 20px; font-size: .95rem;
+}
+.story p { margin: 0 0 12px; }
+.story footer { color: var(--muted); font-size: .85rem; }
+.story-placeholder { border-style: dashed; background: var(--soft); }
+.story-placeholder footer strong { color: var(--med); }
+
+/* Severity filter on scan results */
+.sev-filter { display: flex; gap: 8px; margin: 20px 0 4px; flex-wrap: wrap; align-items: center; }
+.sev-filter .lbl { font-size: .85rem; font-weight: 700; color: var(--muted); margin-right: 4px; }
+.sev-filter button {
+  border: 1px solid var(--line); background: #fff; border-radius: 999px;
+  padding: 6px 14px; font-size: .85rem; font-weight: 600; cursor: pointer; color: var(--muted);
+}
+.sev-filter button:hover { border-color: var(--accent); color: var(--ink); }
+.sev-filter button.active { background: var(--ink); border-color: var(--ink); color: #fff; }
+
+/* Scan history (localStorage) */
+.history-panel { margin-top: 20px; }
+.history-list { display: grid; gap: 10px; margin-top: 12px; }
+.history-item {
+  display: flex; align-items: center; gap: 12px;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 12px 16px; background: #fff; width: 100%;
+  cursor: pointer; text-align: left; font-size: .92rem;
+}
+.history-item:hover { border-color: var(--accent); }
+.history-item .h-score {
+  font-weight: 800; font-size: 1.2rem; min-width: 44px; text-align: center;
+  padding: 6px 10px; border-radius: 8px;
+}
+.history-item .h-meta { flex: 1; min-width: 0; }
+.history-item .h-date { color: var(--muted); font-size: .8rem; }
+.history-item .h-summary {
+  color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px;
+}
+.h-empty { color: var(--muted); font-size: .92rem; }
+
+/* Print-friendly report: clean PDF from the browser */
+@media print {
+  .nav, footer, .scan-actions, .result-actions, .sev-filter,
+  .spinner, .error-box, .history-panel, .mode-note-extra, #scanAnotherBtn { display: none !important; }
+  #inputPanel { display: none !important; }
+  #results { display: block !important; }
+  .panel { border: 0; padding: 0; }
+  .flag { break-inside: avoid; box-shadow: none; }
+  .scan-layout { padding: 0; }
+  .wrap.narrow { max-width: none; }
+  a { text-decoration: none; color: inherit; }
+  .disclaimer { margin: 24px 0 0; }
 }

@@ -16,6 +16,62 @@
   var paidNotice = document.getElementById('paidNotice');
 
   var lastResult = null;
+  var sevFilter = 'all';
+
+  /* ---- Client-side PDF text extraction (pdf.js via CDN) ----
+     Contracts live in PDFs. Parse in the browser so the text lands
+     straight in the textarea. If pdf.js fails or isn't loaded, the
+     scan flow falls back to the server-side file upload below. */
+  var PDFJS_CDN = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+
+  function extractPdfText(file) {
+    return new Promise(function (resolve, reject) {
+      if (!window.pdfjsLib) return reject(new Error('pdf.js not available'));
+      window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS_CDN + 'pdf.worker.min.js';
+      var reader = new FileReader();
+      reader.onload = function () {
+        var bytes = new Uint8Array(reader.result);
+        window.pdfjsLib.getDocument({ data: bytes }).promise.then(function (pdf) {
+          var jobs = [];
+          for (var i = 1; i <= pdf.numPages; i++) {
+            jobs.push(pdf.getPage(i).then(function (page) {
+              return page.getTextContent().then(function (tc) {
+                return tc.items.map(function (it) { return it.str; }).join(' ');
+              });
+            }));
+          }
+          return Promise.all(jobs);
+        }).then(function (texts) {
+          resolve(texts.join('\n\n'));
+        }).catch(reject);
+      };
+      reader.onerror = reject;
+      reader.readAsArrayBuffer(file);
+    });
+  }
+
+  /* Embedded fallback sample contract (used if /api/sample is unreachable).
+     Short on purpose, with several deliberately risky clauses. */
+  var FALLBACK_SAMPLE_CONTRACT =
+'FREELANCE SERVICES AGREEMENT\n' +
+'\n' +
+'This Freelance Services Agreement ("Agreement") is entered into on September 9, 2026, by and between Acme Marketing Inc. ("Client") and the undersigned freelancer ("Contractor").\n' +
+'\n' +
+'1. SERVICES. Contractor will provide website design and copywriting services as described in the attached project brief (the "Work").\n' +
+'\n' +
+'2. PAYMENT. Client will pay Contractor $4,000 upon final delivery of the Work. Payment is due within 60 days of invoicing. Late payments accrue no interest or penalty.\n' +
+'\n' +
+'3. INTELLECTUAL PROPERTY. All Work, including all drafts, concepts, sketches, and preliminary materials created at any time, whether or not delivered to Client, shall be the exclusive property of Client. Contractor assigns all rights, title, and interest in the Work to Client, including any pre-existing materials incorporated into the Work.\n' +
+'\n' +
+'4. NON-COMPETE. For a period of 24 months after this Agreement ends, Contractor shall not provide design or marketing services to any business that competes with Client, anywhere in the United States.\n' +
+'\n' +
+'5. INDEMNIFICATION. Contractor shall indemnify, defend, and hold harmless Client from any and all claims, damages, losses, and expenses, including attorney\'s fees, arising from Contractor\'s performance under this Agreement, with no cap or limitation.\n' +
+'\n' +
+'6. LIMITATION OF LIABILITY. Client\'s total liability under this Agreement shall not exceed the fees paid. (Contractor\'s liability is not similarly limited.)\n' +
+'\n' +
+'7. TERMINATION. Client may terminate this Agreement at any time, for any reason, upon written notice. Contractor may not terminate except for Client\'s material breach uncured within 60 days. Upon termination by Client, Contractor is entitled to no further payment, including for Work already completed but not yet invoiced.\n' +
+'\n' +
+'8. GOVERNING LAW. This Agreement is governed by the laws of the State of Delaware. Any disputes shall be resolved exclusively in the courts of Wilmington, Delaware.\n';
 
   /* ---- Returning from Stripe checkout (?paid=1&email=...) ---- */
   (function handlePaidReturn() {
@@ -67,11 +123,12 @@
     try {
       var r = await fetch('/api/sample');
       var d = await r.json();
-      textEl.value = d.text || '';
-      textEl.dispatchEvent(new Event('input'));
+      textEl.value = (d && d.text) || FALLBACK_SAMPLE_CONTRACT;
     } catch (e) {
-      showError('Could not load the sample contract. Please try again.');
+      // Works even if the API is unreachable — the demo never blocks on it.
+      textEl.value = FALLBACK_SAMPLE_CONTRACT;
     }
+    textEl.dispatchEvent(new Event('input'));
     sampleBtn.disabled = false;
   });
 
@@ -112,13 +169,26 @@
         showError('That file is over 4MB. Please use a smaller file or paste the text.');
         return;
       }
-      try {
-        var b64 = await readFileAsBase64(file);
-        payload.fileBase64 = b64;
-        payload.filename = file.name;
-      } catch (e) {
-        showError('Could not read that file. Try copy-pasting the text instead.');
-        return;
+      var isPdf = /\.pdf$/i.test(file.name) || file.type === 'application/pdf';
+      if (isPdf && window.pdfjsLib) {
+        // Parse the PDF in the browser — instant, no upload needed.
+        try {
+          var pdfText = await extractPdfText(file);
+          if (pdfText && pdfText.trim().length >= 50) {
+            payload.text = pdfText;
+          }
+          // else: fall through to the server-side upload path below
+        } catch (e) { /* fall through to server upload */ }
+      }
+      if (!payload.text) {
+        try {
+          var b64 = await readFileAsBase64(file);
+          payload.fileBase64 = b64;
+          payload.filename = file.name;
+        } catch (e) {
+          showError('Could not read that file. Try copy-pasting the text instead.');
+          return;
+        }
       }
     } else if (textEl.value.trim().length >= 50) {
       payload.text = textEl.value;
@@ -166,34 +236,63 @@
       .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
   }
 
-  function renderResults(data) {
+  function flagHtml(f) {
+    return (
+      '<article class="flag">' +
+        '<div class="flag-head"><h3>' + esc(f.title) + '</h3>' +
+        '<span class="risk ' + esc(f.risk) + '">' + esc(f.risk) + ' risk</span></div>' +
+        '<div class="clause">&ldquo;' + esc(f.clause) + '&rdquo;</div>' +
+        '<p><span class="lbl">Why it matters &mdash; </span>' + esc(f.explanation) + '</p>' +
+        '<p><span class="lbl">What to do &mdash; </span>' + esc(f.suggestion) + '</p>' +
+      '</article>'
+    );
+  }
+
+  function renderFlags(flags, filter) {
+    var list = (flags || []).filter(function (f) {
+      return filter === 'all' || String(f.risk).toLowerCase() === filter;
+    });
+    var html = list.map(flagHtml).join('');
+    if (!html) {
+      html = filter === 'all'
+        ? '<p>No major red flags found. Standard terms throughout &mdash; but always read the full agreement yourself.</p>'
+        : '<p>No ' + esc(filter) + '-risk findings in this report. Try another severity.</p>';
+    }
+    document.getElementById('flagsList').innerHTML = html;
+  }
+
+  function resetSevFilter() {
+    sevFilter = 'all';
+    var btns = document.querySelectorAll('#sevFilter button');
+    btns.forEach(function (b) {
+      b.classList.toggle('active', b.getAttribute('data-sev') === 'all');
+    });
+  }
+
+  function renderResults(data, opts) {
+    opts = opts || {};
     lastResult = data;
+    resetSevFilter();
     var band = bandFor(data.score);
     var circ = 2 * Math.PI * 56;
     var frac = Math.max(0, Math.min(100, data.score)) / 100;
     var color = band.cls === 'high' ? 'var(--high)' : band.cls === 'medium' ? 'var(--med)' : 'var(--low)';
 
-    var flagsHtml = (data.flags || []).map(function (f) {
-      return (
-        '<article class="flag">' +
-          '<div class="flag-head"><h3>' + esc(f.title) + '</h3>' +
-          '<span class="risk ' + esc(f.risk) + '">' + esc(f.risk) + ' risk</span></div>' +
-          '<div class="clause">&ldquo;' + esc(f.clause) + '&rdquo;</div>' +
-          '<p><span class="lbl">Why it matters &mdash; </span>' + esc(f.explanation) + '</p>' +
-          '<p><span class="lbl">What to do &mdash; </span>' + esc(f.suggestion) + '</p>' +
-        '</article>'
-      );
-    }).join('');
+    var flagsHtml = null; // rendered via renderFlags() below
 
-    if (!flagsHtml) {
-      flagsHtml = '<p>No major red flags found. Standard terms throughout &mdash; but always read the full agreement yourself.</p>';
+    if (opts.viewedDate) {
+      document.getElementById('modeBadge').textContent = 'Past scan';
+      document.getElementById('modeBadge').className = 'mode-badge';
+      document.getElementById('modeNote').textContent =
+        'Saved on this device on ' + new Date(opts.viewedDate).toLocaleString() +
+        '. This is the report as originally generated — scan again for a fresh analysis.';
+    } else {
+      document.getElementById('modeBadge').textContent = data.demoMode ? 'Demo report' : 'AI report';
+      document.getElementById('modeBadge').className = 'mode-badge' + (data.demoMode ? '' : ' live');
+      document.getElementById('modeNote').textContent = data.demoMode
+        ? 'Demo mode is on: this is a sample report so you can try the full flow. Connect an LLM key for live scans.'
+        : 'Generated from the contract text you provided.';
     }
-
-    document.getElementById('modeBadge').textContent = data.demoMode ? 'Demo report' : 'AI report';
-    document.getElementById('modeBadge').className = 'mode-badge' + (data.demoMode ? '' : ' live');
-    document.getElementById('modeNote').textContent = data.demoMode
-      ? 'Demo mode is on: this is a sample report so you can try the full flow. Connect an LLM key for live scans.'
-      : 'Generated from the contract text you provided.';
 
     document.getElementById('scoreDial').innerHTML =
       '<svg width="132" height="132" viewBox="0 0 132 132">' +
@@ -207,16 +306,70 @@
     document.getElementById('bandLabel').textContent = band.label;
     document.getElementById('bandLabel').className = 'band ' + band.cls;
     document.getElementById('summaryText').textContent = data.summary || '';
-    document.getElementById('flagsList').innerHTML = flagsHtml;
+    renderFlags(data.flags, 'all');
+
+    if (opts.saveToHistory !== false) saveScanToHistory(data);
 
     inputPanel.style.display = 'none';
     resultsEl.style.display = 'block';
     resultsEl.scrollIntoView({ behavior: 'smooth' });
   }
 
+  /* ---- Scan history in localStorage (this device only) ---- */
+  var HISTORY_KEY = 'fineprint_history_v1';
+  var HISTORY_MAX = 20;
+
+  function getHistory() {
+    try {
+      var h = JSON.parse(localStorage.getItem(HISTORY_KEY));
+      return Array.isArray(h) ? h : [];
+    } catch (e) { return []; }
+  }
+
+  function saveScanToHistory(data) {
+    try {
+      var h = getHistory();
+      h.unshift({
+        ts: Date.now(),
+        score: data.score,
+        summary: data.summary || '',
+        flags: data.flags || [],
+        demoMode: !!data.demoMode,
+      });
+      while (h.length > HISTORY_MAX) h.pop();
+      localStorage.setItem(HISTORY_KEY, JSON.stringify(h));
+    } catch (e) { /* storage unavailable — history just won't persist */ }
+    renderHistory();
+  }
+
+  function renderHistory() {
+    var list = document.getElementById('historyList');
+    if (!list) return;
+    var h = getHistory();
+    if (!h.length) {
+      list.innerHTML = '<p class="h-empty">No scans yet. Reports you generate will be saved here, on this device only.</p>';
+      return;
+    }
+    list.innerHTML = h.map(function (item, i) {
+      var band = bandFor(item.score);
+      var bg = band.cls === 'high' ? 'var(--high-bg)' : band.cls === 'medium' ? 'var(--med-bg)' : 'var(--low-bg)';
+      var fg = band.cls === 'high' ? 'var(--high)' : band.cls === 'medium' ? 'var(--med)' : 'var(--low)';
+      return '<button type="button" class="history-item" data-hidx="' + i + '">' +
+        '<span class="h-score" style="background:' + bg + ';color:' + fg + '">' + esc(item.score) + '</span>' +
+        '<span class="h-meta"><span class="h-summary">' + esc(item.summary || 'Contract scan') + '</span>' +
+        '<br><span class="h-date">' + esc(new Date(item.ts).toLocaleString()) + ' &middot; ' + esc(band.label) + '</span></span>' +
+      '</button>';
+    }).join('');
+    list.querySelectorAll('.history-item').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        var item = getHistory()[Number(btn.getAttribute('data-hidx'))];
+        if (item) renderResults(item, { saveToHistory: false, viewedDate: item.ts });
+      });
+    });
+  }
+
   if (isScanPage) {
-  document.getElementById('scanAnotherBtn').addEventListener('click', function () {
-    resultsEl.style.display = 'none';
+  document.getElementById('scanAnotherBtn').addEventListener('click', function () {    resultsEl.style.display = 'none';
     inputPanel.style.display = 'block';
     textEl.value = '';
     fileEl.value = '';
@@ -266,6 +419,23 @@
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   });
+  // Severity filter + print + history list (scan page only)
+  document.querySelectorAll('#sevFilter button').forEach(function (btn) {
+    btn.addEventListener('click', function () {
+      if (!lastResult) return;
+      sevFilter = btn.getAttribute('data-sev');
+      document.querySelectorAll('#sevFilter button').forEach(function (b) {
+        b.classList.toggle('active', b === btn);
+      });
+      renderFlags(lastResult.flags, sevFilter);
+    });
+  });
+
+  document.getElementById('printBtn').addEventListener('click', function () {
+    window.print();
+  });
+
+  renderHistory();
   } // end isScanPage: results buttons
 
   function showToast(msg) {

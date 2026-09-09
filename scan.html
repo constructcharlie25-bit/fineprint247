@@ -6,6 +6,8 @@
 <title>Scan a contract — FinePrint</title>
 <meta name="description" content="Paste or upload a contract and get a plain-English risk report.">
 <link rel="stylesheet" href="/css/style.css">
+<!-- pdf.js: parse PDFs client-side so text lands straight in the textarea -->
+<script defer src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 </head>
 <body>
 
@@ -52,6 +54,11 @@
         <button class="btn ghost" id="sampleBtn">Try the sample contract</button>
         <button class="btn ghost" id="clearBtn">Clear</button>
       </div>
+
+      <div class="panel history-panel" id="historyPanel">
+        <h3 style="margin-top:0">Recent scans</h3>
+        <div class="history-list" id="historyList"></div>
+      </div>
     </div>
 
     <div class="spinner" id="spinner" aria-live="polite">
@@ -72,11 +79,20 @@
         </div>
       </div>
 
+      <div class="sev-filter" id="sevFilter" role="group" aria-label="Filter findings by severity">
+        <span class="lbl">Show:</span>
+        <button type="button" data-sev="all" class="active">All</button>
+        <button type="button" data-sev="high">High</button>
+        <button type="button" data-sev="medium">Medium</button>
+        <button type="button" data-sev="low">Low</button>
+      </div>
+
       <div id="flagsList" class="flags"></div>
 
       <div class="result-actions">
         <button class="btn ghost" id="copyBtn">Copy report</button>
         <button class="btn ghost" id="downloadBtn">Download (.md)</button>
+        <button class="btn ghost" id="printBtn">Print / save PDF</button>
         <button class="btn ghost" id="scanAnotherBtn">Scan another</button>
       </div>
 
