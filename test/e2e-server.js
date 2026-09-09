@@ -28,6 +28,7 @@ try {
 
 const ROUTES = {
   '/api/scan': require('../api/scan'),
+  '/api/unlock': require('../api/unlock'),
   '/api/sample': require('../api/sample'),
   '/api/checkout': require('../api/checkout'),
   '/api/webhook': require('../api/webhook'),

@@ -98,7 +98,7 @@ stays in demo mode (canned sample report).
 - [ ] The full test-mode purchase above works end-to-end.
 - [ ] In Stripe, toggle **test mode OFF**. Replace the four test values in Vercel env vars with the **live** values (`sk_live_…`, live price IDs, live webhook secret). Redeploy.
 - [ ] Make a real $5 purchase yourself and confirm the credit lands, then refund it in the Stripe dashboard.
-- [ ] Email list: the free scan captures the user's email on their Stripe Customer record (`fp_free_used`) — that IS the list. To send the onboarding sequence (drafts in the launch-kit), connect a real provider — easiest: [Buttondown](https://buttondown.com) or [ConvertKit](https://convertkit.com) (both free to start) — and wire the welcome email to fire on the free-scan claim in `api/scan.js`.
+- [ ] Email list: the free teaser captures the user's email on their Stripe Customer record (`fp_free_used`) — that IS the list. To send the onboarding sequence (drafts in the launch-kit), connect a real provider — easiest: [Buttondown](https://buttondown.com) or [ConvertKit](https://convertkit.com) (both free to start) — and wire the welcome email to fire on the free-teaser claim in `api/scan.js`.
 - [ ] Read the disclaimer on the site once more — it says FinePrint is not a law firm and not legal advice. Keep it.
 
 ## 6. Ongoing costs (rough)
@@ -117,8 +117,19 @@ stays in demo mode (canned sample report).
 - After payment, Stripe fires `checkout.session.completed` to
   `/api/webhook`, which writes scan credits (`fp_credits`) or the
   subscription flag (`fp_sub_active`) onto the Stripe Customer's metadata.
+- The free tier is a **teaser**: `POST /api/scan` with a new email returns
+  the 0–100 risk score, severity counts, and the first finding in full —
+  one teaser per email (`fp_free_used`). The response also carries an
+  encrypted unlock token; after the $5 checkout succeeds, the client POSTs
+  it to `/api/unlock` and gets the complete report instantly, with no new
+  LLM call. Paid users without a valid token still get the full report via
+  a fresh paid analysis.
 - `/api/scan` reads that metadata on every scan: active subscribers scan
   free; everyone else spends one credit per scan (402 when they're out).
+- The unlock-token keys are derived from `STRIPE_WEBHOOK_SECRET` (HKDF —
+  no extra env var). **Do not rotate the webhook secret casually**: rotation
+  invalidates all outstanding unlock tokens (paid users still get their
+  report via a fresh paid scan).
 - No database to run, back up, or pay for. If you outgrow this, the
   entitlement logic is isolated in `lib/entitlements.js` — swap the Stripe
   metadata calls for database calls there.

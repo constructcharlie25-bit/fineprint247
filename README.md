@@ -27,15 +27,17 @@ fineprint/
 ├── index.html            # Landing page: hero, how-it-works, pricing, FAQ, free-scan capture, disclaimer
 ├── scan.html             # Scanner app: textarea + file upload, results view
 ├── css/style.css         # All styles (mobile-friendly, no framework)
-├── js/scan.js            # Scanner UI logic: upload, gated reports, unlock flow, negotiation emails, pay buttons
+├── js/scan.js            # Scanner UI logic: upload, free risk-score teaser, paid unlock, negotiation emails, pay buttons
 ├── api/
-│   ├── scan.js           # POST /api/scan — extract text → analyze → gated preview or full report (free-tier claim inline)
+│   ├── scan.js           # POST /api/scan — extract text → analyze → free teaser (one per email) or full report for paid users
+│   ├── unlock.js         # POST /api/unlock — redeem a paid unlock token for the full report instantly (no re-scan)
 │   ├── sample.js         # GET /api/sample — demo contract text for "Try the sample"
 │   ├── checkout.js       # POST /api/checkout — Stripe Checkout sessions ($5 single / $20 5-pack / $29 mo)
 │   ├── webhook.js        # POST /api/webhook — Stripe events → credits/subscription on customer metadata
 │   └── tiers.js          # GET /api/tiers — which pricing tiers are enabled (pack hidden unless STRIPE_PRICE_PACK set)
 ├── lib/
-│   ├── analysis.js       # System prompt, analyzeContract(), extractText(), demo fixtures
+│   ├── analysis.js       # System prompt, analyzeContract(), extractText(), demo fixtures, toClientReport() flag normalization
+│   ├── token.js          # Paid unlock tokens: HKDF-derived AES-256-GCM + HMAC, 24h expiry, ~100KB cap (no new env var)
 │   ├── stripe.js         # Lazy Stripe client (null when STRIPE_SECRET_KEY unset)
 │   ├── entitlements.js   # Credits/subscription via Stripe Customer metadata (no database)
 │   └── ratelimit.js      # In-memory per-IP sliding-window limiter (best-effort on serverless)
@@ -103,7 +105,8 @@ npx vercel dev
 
 | Route | Method | Body | Notes |
 |---|---|---|---|
-| `/api/scan` | POST | `{text, email?}` or `{fileBase64, filename, email?}` | 200 → full report, or gated preview `{gated: true, gateReason}` when payments are live; 400/413/422 on bad input; 500/502 on Stripe failures |
+| `/api/scan` | POST | `{text, email}` or `{fileBase64, filename, email}` | payments live: 200 → free **teaser** (score, severity counts, first finding, unlock token) for a new email, or the full report for subscribers/credit holders; 400 `email_required_for_free_scan` without an email; 403 `teaser_already_claimed` on repeat emails; 400/413/422 on bad input; 500/502 on Stripe failures |
+| `/api/unlock` | POST | `{email, token}` | 200 → full report instantly (no LLM call) when the token is valid, unexpired, email-bound, and the caller has paid (subscriber or ≥1 credit, spent here); 400/403 `unlock_invalid`, 410 `unlock_expired`, 402 `payment_required` |
 | `/api/sample` | GET | — | demo contract text |
 | `/api/checkout` | POST | `{mode: "single"\|"pack"\|"subscription", email}` | 200 → `{url}`; 501 until `STRIPE_SECRET_KEY` is set; `pack` needs `STRIPE_PRICE_PACK` |
 | `/api/webhook` | POST | Stripe event (raw body) | verifies signature; grants credits (count from session metadata) / toggles subscription |
@@ -116,9 +119,40 @@ sessions ($5 one-time via `STRIPE_PRICE_SINGLE`, $20 / 5-scan pack via
 `STRIPE_PRICE_PACK`, $29/mo via `STRIPE_PRICE_MONTHLY`), `api/webhook.js`
 verifies signatures and records entitlements on the Stripe Customer's
 metadata (`fp_credits`, `fp_sub_active`, `fp_free_used`), and `api/scan.js`
-enforces them (gated preview once the free scan is used). No database — see
-`lib/entitlements.js`. Until `STRIPE_SECRET_KEY` is set, checkout returns
+enforces them. No database — see `lib/entitlements.js`. Until
+`STRIPE_SECRET_KEY` is set, checkout returns
 `501 payments_not_configured` and scans stay free (demo/beta mode).
+
+## Free teaser + paid unlock
+
+The free tier is a **teaser**, not a free report: `POST /api/scan` with a new
+email returns the 0–100 risk score, severity counts (e.g. "3 high, 2 medium"),
+and the first finding in full — the pushback email templates stay locked. One
+teaser per email (`fp_free_used` on the Stripe Customer; lowercase + trim
+normalized, plus-addressing preserved). The response also carries an encrypted
+**unlock token** and a "Unlock the full report — $5" CTA.
+
+The unlock token (`lib/token.js`) is self-contained: the complete report is
+AES-256-GCM encrypted, HMAC-bound (version + expiry + IV + ciphertext), tied
+to the claimant's email, and expires after 24 hours. After the $5 checkout
+succeeds, the client keeps the token in `sessionStorage` (never in a URL) and
+POSTs it to `/api/unlock`, which verifies entitlement and returns the full
+report — score, every finding, and every negotiation email template — with **no
+new LLM call**. Missing/expired/invalid tokens (or reports too large to
+tokenize, ~100KB cap) fall back to a fresh paid analysis, so paid users always
+get their report.
+
+**Key choice — no new env var:** the token keys are derived via HKDF-SHA256
+from the existing `STRIPE_WEBHOOK_SECRET` (distinct info strings for the AES
+and HMAC keys, so they are cryptographically isolated from the webhook signing
+key). Consequences, documented here rather than hidden:
+
+1. If `STRIPE_WEBHOOK_SECRET` is ever rotated, all outstanding unlock tokens
+   invalidate immediately (HMAC verification fails). Paid users still get
+   their report via the paid re-scan fallback.
+2. If `STRIPE_WEBHOOK_SECRET` is unset, tokens cannot be sealed — the teaser
+   claim fails closed with 502 instead of granting a teaser that could never
+   be unlocked.
 
 ## Security notes
 

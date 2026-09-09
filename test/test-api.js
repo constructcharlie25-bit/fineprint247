@@ -56,8 +56,15 @@ async function t(name, fn) {
     assert.ok(typeof res.body.summary === 'string' && res.body.summary.length > 20);
     assert.ok(Array.isArray(res.body.flags) && res.body.flags.length > 0);
     for (const f of res.body.flags) {
-      assert.ok(f.title && f.clause && f.explanation && f.suggestion, 'flag missing field');
-      assert.ok(['high', 'medium', 'low'].includes(f.risk), 'bad risk value');
+      assert.ok(f.title && f.clause && f.risk && f.negotiation, 'flag missing field');
+      assert.ok(['high', 'medium', 'low'].includes(f.severity), 'bad severity value');
+      if (f.severity === 'high') {
+        assert.ok(f.negotiationEmail && f.negotiationEmail.body.length > 40, 'high flag missing pushback email');
+        assert.ok(f.negotiationEmail.body.includes('[') && f.negotiationEmail.body.includes(']'), 'email needs [placeholders]');
+        assert.strictEqual(f.legalReview, true, 'high-stakes flag needs the lawyer nudge');
+      } else {
+        assert.strictEqual(f.negotiationEmail, null, 'only high flags carry pushback emails');
+      }
     }
   });
 
@@ -509,6 +516,7 @@ async function t(name, fn) {
   /* ---------------- /api/webhook (mocked stripe) ---------------- */
   console.log('webhook route (mocked stripe)');
   const webhook = require('../api/webhook');
+  const unlock = require('../api/unlock');
 
   await t('POST webhook without secrets -> 501', async () => {
     const saved = saveEnv();
@@ -688,7 +696,7 @@ async function t(name, fn) {
   console.log('scan route (entitlement gating, mocked stripe)');
   const LONG_TEXT = 'This is a services agreement between Client and Contractor for design work. '.repeat(10);
 
-  await t('payments live + no email -> 200 gated preview (score + top flag)', async () => {
+  await t('payments live + no email -> 400 email_required', async () => {
     const saved = saveEnv();
     scan._resetRateLimits();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
@@ -696,18 +704,12 @@ async function t(name, fn) {
     try {
       const res = mockRes();
       await scan(mockReq({ body: { text: LONG_TEXT } }), res);
-      assert.strictEqual(res.statusCode, 200);
-      assert.strictEqual(res.body.gated, true);
-      assert.strictEqual(res.body.gateReason, 'no_email');
-      assert.strictEqual(res.body.score, DEMO_ANALYSIS.score);
-      assert.ok(typeof res.body.summary === 'string' && res.body.summary.length > 20);
-      assert.strictEqual(res.body.flags.length, 1);
-      assert.strictEqual(res.body.flags[0].risk, 'high'); // top flag = highest severity
-      assert.strictEqual(res.body.gatedCount, DEMO_ANALYSIS.flags.length - 1);
+      assert.strictEqual(res.statusCode, 400);
+      assert.strictEqual(res.body.error, 'email_required');
     } finally { unmockStripe(); restoreEnv(saved); }
   });
 
-  await t('payments live + invalid email -> 200 gated preview (treated as no email)', async () => {
+  await t('payments live + invalid email -> 400 email_required', async () => {
     const saved = saveEnv();
     scan._resetRateLimits();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
@@ -715,77 +717,107 @@ async function t(name, fn) {
     try {
       const res = mockRes();
       await scan(mockReq({ body: { text: LONG_TEXT, email: 'not-an-email' } }), res);
-      assert.strictEqual(res.statusCode, 200);
-      assert.strictEqual(res.body.gated, true);
-      assert.strictEqual(res.body.gateReason, 'no_email');
+      assert.strictEqual(res.statusCode, 400);
+      assert.strictEqual(res.body.error, 'email_required');
     } finally { unmockStripe(); restoreEnv(saved); }
   });
 
-  await t('payments live + new email -> 200 full report, free scan claimed (no credits touched)', async () => {
+  await t('payments live + new email -> 200 TEASER (score, counts, first finding, unlock token)', async () => {
     const saved = saveEnv();
     scan._resetRateLimits();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
     const db = {};
     mockStripe(makeFakeStripe(db));
     try {
       const res = mockRes();
       await scan(mockReq({ body: { text: LONG_TEXT, email: 'New@Example.com' } }), res);
       assert.strictEqual(res.statusCode, 200);
-      assert.strictEqual(res.body.gated, undefined);
-      assert.strictEqual(res.body.freeScan, true);
-      assert.strictEqual(res.body.flags.length, DEMO_ANALYSIS.flags.length);
-      // Customer created, normalized email, free scan recorded, no credits granted/spent.
+      const b = res.body;
+      assert.strictEqual(b.teaser, true, 'expected a teaser, not a full report');
+      assert.strictEqual(b.score, DEMO_ANALYSIS.score);
+      assert.ok(typeof b.summary === 'string' && b.summary.length > 20);
+      // Severity counts over the full demo report: 5 high, 3 medium, 1 low.
+      assert.deepStrictEqual(b.severityCounts, { high: 5, medium: 3, low: 1 });
+      assert.strictEqual(b.totalFindings, DEMO_ANALYSIS.flags.length);
+      // First finding in full — but the pushback email stays locked and the
+      // complete flags array is NOT included.
+      assert.ok(b.topFlag, 'teaser must include the first finding');
+      assert.strictEqual(b.topFlag.severity, 'high');
+      assert.strictEqual(b.topFlag.title, DEMO_ANALYSIS.flags[0].title);
+      assert.ok(b.topFlag.clause && b.topFlag.clause.length > 20);
+      assert.ok(b.topFlag.risk && b.topFlag.risk.length > 20, 'top flag needs its why-it-matters text');
+      assert.ok(b.topFlag.negotiation && b.topFlag.negotiation.length > 10);
+      assert.strictEqual(b.topFlag.negotiationEmail, undefined, 'pushback email must stay locked in the teaser');
+      assert.ok(!('flags' in b), 'teaser must not include the full flags array');
+      // Unlock token: present, well-formed, bound to the normalized email,
+      // expiring ~24h out, carrying the complete report.
+      assert.ok(typeof b.unlockToken === 'string' && b.unlockToken.startsWith('fp1.'));
+      const expMs = Date.parse(b.unlockExpiresAt);
+      assert.ok(expMs - Date.now() > 23 * 3600 * 1000 && expMs - Date.now() < 25 * 3600 * 1000,
+        'unlock token should expire ~24h out, got: ' + b.unlockExpiresAt);
+      const { openUnlockToken } = require('../lib/token');
+      const opened = openUnlockToken(b.unlockToken);
+      assert.strictEqual(opened.email, 'new@example.com');
+      assert.strictEqual(opened.report.flags.length, DEMO_ANALYSIS.flags.length);
+      assert.ok(opened.report.flags[0].negotiationEmail, 'sealed report carries the email templates');
+      assert.strictEqual(opened.report.flags[0].negotiationEmail.subject.length > 0, true);
+      assert.strictEqual(b.cta.label, 'Unlock the full report — $5');
+      assert.strictEqual(b.unlockViaRescan, false);
+      // Customer created, normalized email, teaser recorded, no credits minted.
       const rec = db['new@example.com'];
       assert.ok(rec, 'customer should exist under the normalized email');
       assert.strictEqual(rec.metadata.fp_free_used, '1');
-      assert.ok(!rec.metadata.fp_credits, 'free claim must not mint credits');
+      assert.ok(!rec.metadata.fp_credits, 'teaser claim must not mint credits');
     } finally { unmockStripe(); restoreEnv(saved); }
   });
 
-  await t('payments live + same email twice -> second scan is gated (free_used)', async () => {
+  await t('payments live + same email twice -> second scan is 403 teaser_already_claimed', async () => {
     const saved = saveEnv();
     scan._resetRateLimits();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
     const db = {};
     mockStripe(makeFakeStripe(db));
     try {
       let res = mockRes();
       await scan(mockReq({ body: { text: LONG_TEXT, email: 'twice@example.com' } }), res);
       assert.strictEqual(res.statusCode, 200);
-      assert.strictEqual(res.body.freeScan, true);
+      assert.strictEqual(res.body.teaser, true);
       res = mockRes();
       await scan(mockReq({ body: { text: LONG_TEXT, email: 'twice@example.com' } }), res);
-      assert.strictEqual(res.statusCode, 200);
-      assert.strictEqual(res.body.gated, true);
-      assert.strictEqual(res.body.gateReason, 'free_used');
-      assert.strictEqual(res.body.gatedCount, DEMO_ANALYSIS.flags.length - 1);
+      assert.strictEqual(res.statusCode, 403);
+      assert.strictEqual(res.body.error, 'teaser_already_claimed');
+      assert.ok(res.body.message.includes('$5'));
     } finally { unmockStripe(); restoreEnv(saved); }
   });
 
-  await t('free claim normalizes email: uppercase + plus-addressing share one claim', async () => {
+  await t('teaser claim normalizes email: uppercase + plus-addressing share one claim', async () => {
     const saved = saveEnv();
     scan._resetRateLimits();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
     const db = {};
     mockStripe(makeFakeStripe(db));
     try {
       let res = mockRes();
       await scan(mockReq({ body: { text: LONG_TEXT, email: 'PRO+Tag@Example.COM' } }), res);
       assert.strictEqual(res.statusCode, 200);
-      assert.strictEqual(res.body.freeScan, true);
+      assert.strictEqual(res.body.teaser, true);
       assert.ok(db['pro+tag@example.com'], 'stored under normalized email, got: ' + Object.keys(db));
-      // Same address, different casing/format -> already claimed, not a second free scan.
+      // Same address, different casing -> already claimed, not a second teaser.
       res = mockRes();
       await scan(mockReq({ body: { text: LONG_TEXT, email: 'pro+tag@example.com' } }), res);
-      assert.strictEqual(res.body.gated, true);
-      assert.strictEqual(res.body.gateReason, 'free_used');
+      assert.strictEqual(res.statusCode, 403);
+      assert.strictEqual(res.body.error, 'teaser_already_claimed');
     } finally { unmockStripe(); restoreEnv(saved); }
   });
 
-  await t('racing free claims for the same email grant only one free scan', async () => {
+  await t('racing teaser claims for the same email grant only one teaser', async () => {
     const saved = saveEnv();
     scan._resetRateLimits();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
     const db = {};
     mockStripe(makeFakeStripe(db));
     try {
@@ -795,18 +827,19 @@ async function t(name, fn) {
         scan(mockReq({ body: { text: LONG_TEXT, email: 'race@example.com' } }), res1),
         scan(mockReq({ body: { text: LONG_TEXT, email: 'race@example.com' } }), res2),
       ]);
-      const full = [res1, res2].filter((r) => r.body.freeScan === true).length;
-      const gated = [res1, res2].filter((r) => r.body.gated === true).length;
-      assert.strictEqual(full, 1, 'exactly one full free report');
-      assert.strictEqual(gated, 1, 'the loser gets the gated report');
+      const teasers = [res1, res2].filter((r) => r.statusCode === 200 && r.body.teaser === true).length;
+      const rejected = [res1, res2].filter((r) => r.statusCode === 403 && r.body.error === 'teaser_already_claimed').length;
+      assert.strictEqual(teasers, 1, 'exactly one teaser');
+      assert.strictEqual(rejected, 1, 'the loser gets 403 teaser_already_claimed');
       assert.strictEqual(db['race@example.com'].metadata.fp_free_used, '1');
     } finally { unmockStripe(); restoreEnv(saved); }
   });
 
-  await t('free claim when Stripe fails mid-claim -> 502 free_scan_failed (no report served)', async () => {
+  await t('teaser claim when Stripe fails mid-claim -> 502 teaser_claim_failed (nothing granted)', async () => {
     const saved = saveEnv();
     scan._resetRateLimits();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
     const factory = makeFakeStripe({});
     // Break customer creation to simulate a Stripe outage mid-claim.
     const broken = () => {
@@ -819,7 +852,24 @@ async function t(name, fn) {
       const res = mockRes();
       await scan(mockReq({ body: { text: LONG_TEXT, email: 'unlucky@example.com' } }), res);
       assert.strictEqual(res.statusCode, 502);
-      assert.strictEqual(res.body.error, 'free_scan_failed');
+      assert.strictEqual(res.body.error, 'teaser_claim_failed');
+      assert.strictEqual(res.body.teaser, undefined, 'no teaser may be granted on failure');
+      assert.strictEqual(res.body.unlockToken, undefined);
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('teaser claim with no STRIPE_WEBHOOK_SECRET -> 502 (fail closed, no un-unlockable teaser)', async () => {
+    const saved = saveEnv();
+    scan._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    delete process.env.STRIPE_WEBHOOK_SECRET;
+    const db = {};
+    mockStripe(makeFakeStripe(db));
+    try {
+      const res = mockRes();
+      await scan(mockReq({ body: { text: LONG_TEXT, email: 'nosecret@example.com' } }), res);
+      assert.strictEqual(res.statusCode, 502);
+      assert.strictEqual(res.body.error, 'teaser_claim_failed');
     } finally { unmockStripe(); restoreEnv(saved); }
   });
 
@@ -840,10 +890,11 @@ async function t(name, fn) {
     } finally { unmockStripe(); restoreEnv(saved); }
   });
 
-  await t('identical contract text reuses the cached analysis (one LLM call for preview + unlock)', async () => {
+  await t('teaser claim + paid unlock costs exactly one LLM call', async () => {
     const saved = saveEnv();
     scan._resetRateLimits();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
     delete process.env.LLM_API_KEY;
     process.env.OPENAI_API_KEY = 'sk-test-fake';
     const db = {};
@@ -860,7 +911,14 @@ async function t(name, fn) {
               content: JSON.stringify({
                 score: 61,
                 summary: 'A fairly risky agreement with several clauses worth negotiating before you sign.',
-                flags: [{ title: 'Uncapped indemnity', risk: 'high', clause: 'Contractor shall indemnify Client without limitation.', whyItMatters: 'Exposure can exceed the project fee.', whatToDo: 'Cap it at the fees paid.' }],
+                flags: [{
+                  title: 'Uncapped indemnity',
+                  risk: 'high',
+                  clause: 'Contractor shall indemnify Client without limitation.',
+                  explanation: 'Exposure can exceed the project fee.',
+                  suggestion: 'Cap it at the fees paid.',
+                  negotiationEmail: 'Subject: Cap on indemnity\n\nHi [Name], please cap this at the fees paid.',
+                }],
               }),
             },
           }],
@@ -868,20 +926,35 @@ async function t(name, fn) {
       };
     };
     try {
-      const text = 'cache-probe contract text. ' + 'x'.repeat(200);
-      // 1. anonymous gated preview
+      const text = 'unlock-probe contract text. ' + 'x'.repeat(200);
+      const email = 'onecall@example.com';
+      // 1. free teaser — costs the one LLM call
       let res = mockRes();
-      await scan(mockReq({ body: { text } }), res);
+      await scan(mockReq({ body: { text, email } }), res);
       assert.strictEqual(res.statusCode, 200);
-      assert.strictEqual(res.body.gated, true);
+      assert.strictEqual(res.body.teaser, true);
       assert.strictEqual(res.body.score, 61);
-      // 2. email unlock of the same text — must reuse the cached analysis
-      res = mockRes();
-      await scan(mockReq({ body: { text, email: 'cache@example.com' } }), res);
-      assert.strictEqual(res.statusCode, 200);
-      assert.strictEqual(res.body.freeScan, true);
-      assert.strictEqual(res.body.score, 61, 'unlock must show the same score as the preview');
-      assert.strictEqual(fetchCalls, 1, 'second pass over identical text must not re-run the LLM');
+      assert.strictEqual(fetchCalls, 1, 'teaser analysis should cost exactly one LLM call');
+      // 2. checkout completes -> webhook grants one credit
+      const custId = db[email].id;
+      const whRes = mockRes();
+      await webhook(streamReq(JSON.stringify({
+        id: 'evt_1', type: 'checkout.session.completed',
+        data: { object: { id: 'cs_1', mode: 'payment', customer: custId } },
+      }), { 'stripe-signature': 'sig_valid' }), whRes);
+      assert.strictEqual(whRes.statusCode, 200);
+      assert.strictEqual(db[email].metadata.fp_credits, '1');
+      // 3. unlock with the teaser token — full report, zero new LLM calls
+      const uRes = mockRes();
+      await unlock(mockReq({ body: { email, token: res.body.unlockToken } }), uRes);
+      assert.strictEqual(uRes.statusCode, 200);
+      assert.strictEqual(uRes.body.unlocked, true);
+      assert.strictEqual(uRes.body.score, 61, 'unlocked report must match the teaser score');
+      assert.strictEqual(uRes.body.flags.length, 1);
+      assert.strictEqual(uRes.body.flags[0].negotiationEmail.subject, 'Cap on indemnity');
+      assert.ok(uRes.body.flags[0].negotiationEmail.body.includes('please cap this'));
+      assert.strictEqual(fetchCalls, 1, 'unlock must not re-run the LLM');
+      assert.strictEqual(db[email].metadata.fp_credits, '0', 'unlock spends the paid credit');
     } finally { global.fetch = savedFetch; unmockStripe(); restoreEnv(saved); }
   });
 
@@ -927,6 +1000,265 @@ async function t(name, fn) {
       await scan(req, res);
       assert.strictEqual(res.statusCode, 200);
     } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  /* ---------------- /api/unlock + lib/token ---------------- */
+  console.log('unlock route + unlock tokens (mocked stripe)');
+  const { sealUnlockToken, openUnlockToken, UNLOCK_TTL_MS, MAX_TOKEN_BYTES } = require('../lib/token');
+
+  function sealFor(email, report) {
+    const r = report || {
+      demoMode: true,
+      score: 72,
+      summary: 'Demo summary.',
+      flags: [{ severity: 'high', title: 'T', clause: 'c', risk: 'why', negotiation: 'do', negotiationEmail: { subject: 'S', body: 'B' }, legalReview: true }],
+    };
+    return sealUnlockToken(r, email).token;
+  }
+
+  await t('token: seal/open round-trip preserves the report', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    try {
+      const report = { demoMode: true, score: 55, summary: 's', flags: [{ severity: 'low', title: 't' }] };
+      const { token, expiresAt } = sealUnlockToken(report, 'rt@example.com');
+      assert.ok(/^fp1\.\d+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+$/.test(token), 'envelope shape');
+      assert.strictEqual(UNLOCK_TTL_MS, 24 * 3600 * 1000);
+      const opened = openUnlockToken(token);
+      assert.strictEqual(opened.email, 'rt@example.com');
+      assert.deepStrictEqual(opened.report, report);
+      assert.ok(Date.parse(expiresAt) - Date.now() > 23 * 3600 * 1000);
+    } finally { restoreEnv(saved); }
+  });
+
+  await t('token: expired token is rejected as expired (not invalid)', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    try {
+      const { token } = sealUnlockToken({ score: 1 }, 'e@example.com', { ttlMs: -1000 });
+      assert.throws(() => openUnlockToken(token), /expired/);
+    } finally { restoreEnv(saved); }
+  });
+
+  await t('token: tampered ciphertext is rejected as invalid', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    try {
+      const { token } = sealUnlockToken({ score: 1 }, 'e@example.com');
+      const parts = token.split('.');
+      const ct = parts[3];
+      parts[3] = (ct[0] === 'A' ? 'B' : 'A') + ct.slice(1); // flip one char
+      assert.throws(() => openUnlockToken(parts.join('.')), /invalid/);
+    } finally { restoreEnv(saved); }
+  });
+
+  await t('token: tampered expiry is rejected as invalid (MAC checked before expiry)', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    try {
+      const { token } = sealUnlockToken({ score: 1 }, 'e@example.com');
+      const parts = token.split('.');
+      parts[1] = String(Date.now() + 365 * 24 * 3600 * 1000); // extend expiry without re-signing
+      assert.throws(() => openUnlockToken(parts.join('.')), /invalid/);
+    } finally { restoreEnv(saved); }
+  });
+
+  await t('token: wrong secret cannot open a token', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    const { token } = sealUnlockToken({ score: 1 }, 'e@example.com');
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_other';
+    try {
+      assert.throws(() => openUnlockToken(token), /invalid/);
+    } finally { restoreEnv(saved); }
+  });
+
+  await t('token: oversized report returns { tooLarge: true } (paid re-scan fallback)', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    try {
+      const bigFlags = [];
+      for (let i = 0; i < 200; i++) {
+        bigFlags.push({ severity: 'high', title: 'flag ' + i, clause: 'x'.repeat(600), risk: 'y'.repeat(800) });
+      }
+      const sealed = sealUnlockToken({ score: 99, summary: 'big', flags: bigFlags }, 'big@example.com');
+      assert.strictEqual(sealed.tooLarge, true);
+      assert.strictEqual(sealed.token, undefined);
+      assert.ok(MAX_TOKEN_BYTES === 100 * 1024);
+    } finally { restoreEnv(saved); }
+  });
+
+  await t('unlock: GET -> 405', async () => {
+    const res = mockRes();
+    await unlock({ method: 'GET', headers: {} }, res);
+    assert.strictEqual(res.statusCode, 405);
+  });
+
+  await t('unlock: missing token -> 400 unlock_token_required', async () => {
+    const saved = saveEnv();
+    unlock._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    mockStripe(makeFakeStripe({}));
+    try {
+      const res = mockRes();
+      await unlock(mockReq({ body: { email: 'a@b.co' } }), res);
+      assert.strictEqual(res.statusCode, 400);
+      assert.strictEqual(res.body.error, 'unlock_token_required');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('unlock: bad email -> 400 email_required', async () => {
+    const saved = saveEnv();
+    unlock._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    mockStripe(makeFakeStripe({}));
+    try {
+      const res = mockRes();
+      await unlock(mockReq({ body: { email: 'nope', token: 'x' } }), res);
+      assert.strictEqual(res.statusCode, 400);
+      assert.strictEqual(res.body.error, 'email_required');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('unlock: tampered token -> 403 unlock_invalid (no credit spent)', async () => {
+    const saved = saveEnv();
+    unlock._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    const db = { 'paid@example.com': { id: 'cus_p1', metadata: { fp_credits: '1' } } };
+    mockStripe(makeFakeStripe(db));
+    try {
+      const token = sealFor('paid@example.com');
+      const parts = token.split('.');
+      parts[3] = 'A' + parts[3].slice(1);
+      const res = mockRes();
+      await unlock(mockReq({ body: { email: 'paid@example.com', token: parts.join('.') } }), res);
+      assert.strictEqual(res.statusCode, 403);
+      assert.strictEqual(res.body.error, 'unlock_invalid');
+      assert.strictEqual(db['paid@example.com'].metadata.fp_credits, '1', 'no credit spent on invalid token');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('unlock: expired token -> 410 unlock_expired (paid user keeps their credit)', async () => {
+    const saved = saveEnv();
+    unlock._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    const db = { 'paid@example.com': { id: 'cus_p2', metadata: { fp_credits: '1' } } };
+    mockStripe(makeFakeStripe(db));
+    try {
+      const { token } = sealUnlockToken({ score: 1, flags: [] }, 'paid@example.com', { ttlMs: -1000 });
+      const res = mockRes();
+      await unlock(mockReq({ body: { email: 'paid@example.com', token } }), res);
+      assert.strictEqual(res.statusCode, 410);
+      assert.strictEqual(res.body.error, 'unlock_expired');
+      assert.strictEqual(db['paid@example.com'].metadata.fp_credits, '1');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('unlock: token bound to another email -> 403 unlock_invalid', async () => {
+    const saved = saveEnv();
+    unlock._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    const db = {
+      'alice@example.com': { id: 'cus_a', metadata: { fp_credits: '1' } },
+      'bob@example.com': { id: 'cus_b', metadata: { fp_credits: '1' } },
+    };
+    mockStripe(makeFakeStripe(db));
+    try {
+      const token = sealFor('alice@example.com');
+      const res = mockRes();
+      await unlock(mockReq({ body: { email: 'bob@example.com', token } }), res);
+      assert.strictEqual(res.statusCode, 403);
+      assert.strictEqual(res.body.error, 'unlock_invalid');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('unlock: valid token but no payment -> 402 payment_required (nothing revealed)', async () => {
+    const saved = saveEnv();
+    unlock._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    const db = { 'free@example.com': { id: 'cus_f', metadata: { fp_free_used: '1' } } };
+    mockStripe(makeFakeStripe(db));
+    try {
+      const token = sealFor('free@example.com');
+      const res = mockRes();
+      await unlock(mockReq({ body: { email: 'free@example.com', token } }), res);
+      assert.strictEqual(res.statusCode, 402);
+      assert.strictEqual(res.body.error, 'payment_required');
+      assert.strictEqual(res.body.flags, undefined, 'no report content on 402');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('unlock: subscriber redeems with no credits and no decrement', async () => {
+    const saved = saveEnv();
+    unlock._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    const db = { 'sub@example.com': { id: 'cus_s', metadata: { fp_sub_active: 'true', fp_credits: '0' } } };
+    mockStripe(makeFakeStripe(db));
+    try {
+      const token = sealFor('sub@example.com');
+      const res = mockRes();
+      await unlock(mockReq({ body: { email: 'sub@example.com', token } }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.unlocked, true);
+      assert.strictEqual(db['sub@example.com'].metadata.fp_credits, '0');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('unlock: entitlement lookup failure -> 500 (fail closed)', async () => {
+    const saved = saveEnv();
+    unlock._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    const factory = makeFakeStripe({});
+    const broken = () => {
+      const stripe = factory();
+      stripe.customers.list = async () => { throw new Error('stripe exploded'); };
+      return stripe;
+    };
+    mockStripe(broken);
+    try {
+      const token = sealFor('x@y.co');
+      const res = mockRes();
+      await unlock(mockReq({ body: { email: 'x@y.co', token } }), res);
+      assert.strictEqual(res.statusCode, 500);
+      assert.strictEqual(res.body.error, 'entitlement_check_failed');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('toClientReport: normalizes backend flags to the client schema', async () => {
+    const { toClientReport } = require('../lib/analysis');
+    const out = toClientReport({
+      demoMode: true, score: 72, summary: 's',
+      flags: [{
+        title: 'T', clause: 'c', risk: 'high', explanation: 'why', suggestion: 'do',
+        negotiationEmail: 'Subject: Hi\n\nBody here [Name].',
+      }],
+    });
+    const f = out.flags[0];
+    assert.strictEqual(f.severity, 'high');
+    assert.strictEqual(f.risk, 'why');
+    assert.strictEqual(f.negotiation, 'do');
+    assert.deepStrictEqual(f.negotiationEmail, { subject: 'Hi', body: 'Body here [Name].' });
+    assert.strictEqual(f.legalReview, true);
+  });
+
+  await t('toClientReport: medium/low flags get no email object and no lawyer nudge', async () => {
+    const { toClientReport } = require('../lib/analysis');
+    const out = toClientReport({
+      score: 30, summary: 's',
+      flags: [{ title: 'T', clause: 'c', risk: 'medium', explanation: 'e', suggestion: 's', negotiationEmail: '' }],
+    });
+    const f = out.flags[0];
+    assert.strictEqual(f.severity, 'medium');
+    assert.strictEqual(f.negotiationEmail, null);
+    assert.strictEqual(f.legalReview, false);
   });
 
   /* ---------------- LLM wiring (mocked fetch) ---------------- */

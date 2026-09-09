@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>FinePrint — Find the risky clauses in your client contract in 60 seconds</title>
-<meta name="description" content="FinePrint scores your MSA, SOW, or service agreement 0–100 and tells you exactly what to negotiate. A lawyer charges $300+ for this. Your first scan is free.">
+<meta name="description" content="FinePrint scores your MSA, SOW, or service agreement 0–100 and tells you exactly what to negotiate. A lawyer charges $300+ for this. See your risk score free.">
 <link rel="stylesheet" href="/css/style.css">
 </head>
 <body>
@@ -26,7 +26,7 @@
 <header class="hero">
   <div class="wrap">
     <h1>Find the risky clauses in your client contract &mdash; in 60 seconds.</h1>
-    <p class="lede">FinePrint scores your MSA, SOW, or service agreement <strong>0&ndash;100</strong> and tells you exactly what to negotiate. A lawyer charges $300+ for this. <strong>Your first scan is free.</strong></p>
+    <p class="lede">FinePrint scores your MSA, SOW, or service agreement <strong>0&ndash;100</strong> and tells you exactly what to negotiate. A lawyer charges $300+ for this. <strong>See your risk score free.</strong></p>
     <div class="hero-cta">
       <a class="btn" href="/scan.html">Scan a contract free</a>
       <a class="btn ghost" href="#why">Why not just use ChatGPT?</a>
@@ -101,7 +101,7 @@
           </tr>
           <tr>
             <td><strong>Price</strong></td>
-            <td class="yes">&check; $5 per scan, first scan free</td>
+            <td class="yes">&check; $5 per scan, free risk score</td>
             <td class="no">&cross; $20/mo subscription, use it or not</td>
             <td class="yes">&check; Free &ndash; $9.99/mo</td>
           </tr>
@@ -115,7 +115,7 @@
       </table>
     </div>
     <p class="compare-note">FinePrint is an informational tool, not a law firm &mdash; <a href="#faq">not legal advice</a>. But it&rsquo;s the closest thing to a contract specialist you can get for $5.</p>
-    <div style="text-align:center"><a class="btn" href="/scan.html">See for yourself &mdash; scan free</a></div>
+    <div style="text-align:center"><a class="btn" href="/scan.html">See for yourself &mdash; free risk score</a></div>
   </div>
 </section>
 
@@ -215,7 +215,7 @@
       </details>
       <details>
         <summary>Can I try it free?</summary>
-        <p>Yes — your first full scan is free, no card required. Paste your contract, see your risk score and biggest red flag instantly, then enter your email to unlock the full report.</p>
+        <p>Yes — see your risk score free, no card required. Paste your contract and get your 0–100 risk score, severity counts, and your biggest red flag. Unlock the full clause-by-clause report — with copy-paste pushback emails for every major red flag — for $5.</p>
       </details>
     </div>
   </div>
@@ -224,11 +224,11 @@
 <section class="block" id="free-scan">
   <div class="wrap">
     <div class="free-scan-box">
-      <h2>Your first scan is free</h2>
-      <p class="sub" style="margin-bottom:0">Enter your email and we&rsquo;ll unlock your full report in the scanner &mdash; risk score, every flagged clause, and copy-paste pushback emails. No card required.</p>
+      <h2>See your risk score free</h2>
+      <p class="sub" style="margin-bottom:0">Enter your email and we&rsquo;ll show your free risk score in the scanner &mdash; 0&ndash;100 score, severity counts, and your biggest red flag. Unlock the full report for $5. No card required.</p>
       <form class="free-scan-form" id="freeScanForm">
         <input type="email" id="freeScanEmail" placeholder="you@example.com" required aria-label="Email address" autocomplete="email">
-        <button class="btn" type="submit">Start my free scan</button>
+        <button class="btn" type="submit">See my free risk score</button>
       </form>
       <div class="form-msg" id="freeScanMsg"></div>
     </div>
@@ -256,11 +256,11 @@
     e.preventDefault();
     var email = (emailEl.value || '').trim().toLowerCase();
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) {
-      msg.textContent = 'Enter a valid email address to start your free scan.';
+      msg.textContent = 'Enter a valid email address to see your free risk score.';
       msg.className = 'form-msg err';
       return;
     }
-    // The scan page claims the free full report inline (see /api/scan) —
+    // The scan page claims the free risk score inline (see /api/scan) —
     // the email travels along so the user doesn't type it twice.
     window.location.href = '/scan.html?email=' + encodeURIComponent(email);
   });
