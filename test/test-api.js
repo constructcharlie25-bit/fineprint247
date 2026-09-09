@@ -1868,7 +1868,8 @@ async function t(name, fn) {
       assert.ok(indexHtml.includes(tag), 'missing ' + tag);
     }
     assert.ok(indexHtml.includes('<link rel="canonical" href="https://www.fineprint247.com/"'), 'missing canonical');
-    assert.ok(indexHtml.includes('twitter:card" content="summary"'), 'text-only card, no image exists');
+    assert.ok(indexHtml.includes('og:image" content="https://www.fineprint247.com/og-image.png"'), 'missing og:image');
+    assert.ok(indexHtml.includes('twitter:card" content="summary_large_image"'), 'expected large-image card now that og:image exists');
   });
 
   await t('scan.html: Open Graph + Twitter Card tags present', async () => {
@@ -1876,7 +1877,8 @@ async function t(name, fn) {
       assert.ok(scanHtml.includes(tag), 'missing ' + tag);
     }
     assert.ok(scanHtml.includes('<link rel="canonical" href="https://www.fineprint247.com/scan.html"'), 'missing canonical');
-    assert.ok(scanHtml.includes('twitter:card" content="summary"'), 'text-only card, no image exists');
+    assert.ok(scanHtml.includes('og:image" content="https://www.fineprint247.com/og-image.png"'), 'missing og:image');
+    assert.ok(scanHtml.includes('twitter:card" content="summary_large_image"'), 'expected large-image card now that og:image exists');
   });
 
   await t('index.html: FAQPage JSON-LD marks up the actual on-page questions', async () => {
