@@ -35,6 +35,11 @@ code is fully wired — no code changes needed, only the accounts/keys below.
    - Name: `Unlimited scans`
    - Price: `$29`, **Recurring → Monthly**
    - Copy the **Price ID** (`price_…`).
+4. *(Optional — enables the $20 / 5-scan pack on the pricing page.)* Product 3:
+   - Name: `5-scan pack`
+   - Price: `$20`, **One-time**
+   - Copy the **Price ID**, then add it to Vercel as `STRIPE_PRICE_PACK`
+     (the site hides the pack tier automatically until this is set).
 
 ### 1c. Set up the webhook
 
@@ -70,6 +75,7 @@ stays in demo mode (canned sample report).
    | `STRIPE_SECRET_KEY` | `sk_test_…` (test for now) | Step 1a |
    | `STRIPE_PRICE_SINGLE` | `price_…` ($5 one-time) | Step 1b |
    | `STRIPE_PRICE_MONTHLY` | `price_…` ($29/mo) | Step 1b |
+   | `STRIPE_PRICE_PACK` | `price_…` ($20 one-time, 5 scans — optional, step 1b.4) | Step 1b |
    | `STRIPE_WEBHOOK_SECRET` | `whsec_…` | Step 1c |
    | `OPENAI_API_KEY` | `sk-…` | Step 2 |
    | `OPENAI_BASE_URL` | _(optional)_ e.g. `https://api.openai.com/v1` | Step 2.4 |
@@ -92,7 +98,7 @@ stays in demo mode (canned sample report).
 - [ ] The full test-mode purchase above works end-to-end.
 - [ ] In Stripe, toggle **test mode OFF**. Replace the four test values in Vercel env vars with the **live** values (`sk_live_…`, live price IDs, live webhook secret). Redeploy.
 - [ ] Make a real $5 purchase yourself and confirm the credit lands, then refund it in the Stripe dashboard.
-- [ ] Waitlist: the built-in signup form currently stores emails in a temporary server file, which **does not persist on Vercel**. Before launch, connect a real provider — easiest: [Buttondown](https://buttondown.com) or [ConvertKit](https://convertkit.com) (both free to start) — and replace the file write in `api/waitlist.js` (marked `TODO`). Ask your AI assistant to do this.
+- [ ] Email list: the free scan captures the user's email on their Stripe Customer record (`fp_free_used`) — that IS the list. To send the onboarding sequence (drafts in the launch-kit), connect a real provider — easiest: [Buttondown](https://buttondown.com) or [ConvertKit](https://convertkit.com) (both free to start) — and wire the welcome email to fire on the free-scan claim in `api/scan.js`.
 - [ ] Read the disclaimer on the site once more — it says FinePrint is not a law firm and not legal advice. Keep it.
 
 ## 6. Ongoing costs (rough)

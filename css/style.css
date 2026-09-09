@@ -91,8 +91,10 @@ section.block h2 { font-size: 1.7rem; letter-spacing: -.02em; margin: 0 0 8px; t
 .pricing { display: grid; grid-template-columns: repeat(2, 1fr); gap: 16px; max-width: 640px; margin: 0 auto; }
 .price-card {
   border: 1px solid var(--line); border-radius: var(--radius);
-  padding: 28px 24px; text-align: center; background: #fff;
+  padding: 28px 24px; text-align: center; background: #fff; position: relative;
 }
+/* Three tiers when the 5-scan pack is enabled (see /api/tiers). */
+.pricing.three { grid-template-columns: repeat(3, 1fr); max-width: 960px; }
 .price-card.featured { border: 2px solid var(--accent); position: relative; }
 .price-card .tag {
   position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
@@ -111,20 +113,50 @@ section.block h2 { font-size: 1.7rem; letter-spacing: -.02em; margin: 0 0 8px; t
 .faq summary { padding: 16px 18px; cursor: pointer; font-weight: 600; }
 .faq details p { padding: 0 18px 16px; margin: 0; color: var(--muted); }
 
-/* Waitlist */
-.waitlist-box {
+/* Free-scan email capture */
+.free-scan-box {
   background: var(--soft); border: 1px solid var(--line);
   border-radius: var(--radius); padding: 36px 28px; text-align: center; max-width: 560px; margin: 0 auto;
 }
-.waitlist-box h2 { margin-top: 0; }
-.waitlist-form { display: flex; gap: 10px; margin-top: 18px; }
-.waitlist-form input[type=email] {
+.free-scan-box h2 { margin-top: 0; }
+.free-scan-form { display: flex; gap: 10px; margin-top: 18px; }
+.free-scan-form input[type=email] {
   flex: 1; padding: 12px 14px; border: 1px solid var(--line);
   border-radius: var(--radius); font-size: 1rem; min-width: 0;
 }
 .form-msg { margin-top: 12px; font-size: .95rem; min-height: 1.4em; }
 .form-msg.ok { color: var(--low); }
 .form-msg.err { color: var(--high); }
+
+/* Negotiation email templates inside high-risk flags */
+.neg-email {
+  margin-top: 14px; border: 1px dashed var(--accent); border-radius: var(--radius);
+  background: #f4f6ff; padding: 14px 16px;
+}.neg-email-head {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; flex-wrap: wrap; margin-bottom: 8px;
+}
+.neg-email-head .lbl { font-weight: 700; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--accent-dark); }
+.neg-email-text {
+  margin: 0; white-space: pre-wrap; word-wrap: break-word;
+  font-family: inherit; font-size: .92rem; line-height: 1.55; color: var(--ink);
+}
+.lawyer-nudge {
+  font-size: .85rem; color: var(--muted); font-style: italic;
+  border-top: 1px solid var(--line); padding-top: 10px; margin-top: 12px;
+}
+
+/* Gated-report unlock row */
+.unlock-row { display: flex; gap: 10px; margin-top: 14px; }
+.unlock-row .email-input { flex: 1; min-width: 0; }
+.unlock-row .btn { white-space: nowrap; }
+#unlockPanel h3 { font-size: 1.15rem; }
+
+/* Pricing extras */
+.price-anchor { text-align: center; color: var(--muted); max-width: 640px; margin: 0 auto 26px; font-size: .98rem; }
+.price-anchor strong { color: var(--ink); }
+.money-back { text-align: center; color: var(--muted); font-size: .92rem; max-width: 560px; margin: 22px auto 0; }
+.money-back strong { color: var(--ink); }
 
 /* Disclaimer + footer */
 .disclaimer {
@@ -207,15 +239,6 @@ input[type=file] { font-size: .95rem; }
 .flag .lbl { font-weight: 700; font-size: .82rem; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
 .result-actions { display: flex; gap: 10px; margin-top: 22px; flex-wrap: wrap; }
 
-/* Responsive */
-@media (max-width: 640px) {
-  .steps, .pricing, .stories { grid-template-columns: 1fr; }
-  .waitlist-form { flex-direction: column; }
-  .hero { padding: 48px 0 36px; }
-  .nav-links a.hide-sm { display: none; }
-  .score-row { gap: 16px; }
-}
-
 /* Email input (scan form + pricing) */
 .email-input {
   width: 100%; padding: 12px 14px; border: 1px solid var(--line);
@@ -237,7 +260,7 @@ input[type=file] { font-size: .95rem; }
   width: 100%; max-width: 780px; margin: 0 auto;
   border-collapse: separate; border-spacing: 0;
   background: #fff; border: 1px solid var(--line); border-radius: var(--radius);
-  overflow: hidden; font-size: .95rem; min-width: 560px;
+  overflow: hidden; font-size: .95rem; min-width: 680px;
 }
 .compare th, .compare td { padding: 14px 16px; text-align: left; vertical-align: top; }
 .compare thead th {
@@ -291,6 +314,17 @@ input[type=file] { font-size: .95rem; }
   color: var(--ink); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px;
 }
 .h-empty { color: var(--muted); font-size: .92rem; }
+
+/* Responsive */
+@media (max-width: 640px) {
+  .steps, .pricing, .pricing.three, .stories { grid-template-columns: 1fr; }
+  .free-scan-form { flex-direction: column; }
+  .unlock-row { flex-direction: column; }
+  .unlock-row .btn { width: 100%; }
+  .hero { padding: 48px 0 36px; }
+  .nav-links a.hide-sm { display: none; }
+  .score-row { gap: 16px; }
+}
 
 /* Print-friendly report: clean PDF from the browser */
 @media print {

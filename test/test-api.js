@@ -13,7 +13,7 @@ delete process.env.LLM_API_KEY; // force demo mode
 const scan = require('../api/scan');
 const sample = require('../api/sample');
 const checkout = require('../api/checkout');
-const waitlist = require('../api/waitlist');
+const tiers = require('../api/tiers');
 const { extractText, validateAnalysis, buildSystemPrompt, DEMO_ANALYSIS } = require('../lib/analysis');
 
 function mockReq({ method = 'POST', body = {}, headers = {} } = {}) {
@@ -137,17 +137,26 @@ async function t(name, fn) {
     assert.strictEqual(res.body.error, 'payments_not_configured');
   });
 
-  await t('POST /api/waitlist valid email -> 200', async () => {
-    const res = mockRes();
-    await waitlist(mockReq({ body: { email: 'Tester@Example.com' } }), res);
-    assert.strictEqual(res.statusCode, 200);
-    assert.strictEqual(res.body.ok, true);
+  await t('POST /api/tiers -> 200 reflects STRIPE_PRICE_PACK', async () => {
+    const saved = saveEnv();
+    try {
+      delete process.env.STRIPE_PRICE_PACK;
+      let res = mockRes();
+      await tiers(mockReq({ method: 'GET' }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.deepStrictEqual(res.body.tiers, { single: true, pack: false, subscription: true });
+
+      process.env.STRIPE_PRICE_PACK = 'price_pack_789';
+      res = mockRes();
+      await tiers(mockReq({ method: 'GET' }), res);
+      assert.strictEqual(res.body.tiers.pack, true);
+    } finally { restoreEnv(saved); }
   });
 
-  await t('POST /api/waitlist bad email -> 400', async () => {
+  await t('POST /api/tiers -> 405', async () => {
     const res = mockRes();
-    await waitlist(mockReq({ body: { email: 'not-an-email' } }), res);
-    assert.strictEqual(res.statusCode, 400);
+    await tiers(mockReq({ method: 'POST' }), res);
+    assert.strictEqual(res.statusCode, 405);
   });
 
   console.log('analysis helpers');
@@ -156,6 +165,41 @@ async function t(name, fn) {
     assert.ok(p.includes('ONLY valid JSON'));
     assert.ok(p.includes('"flags"'));
     assert.ok(p.toLowerCase().includes('not legal advice') || p.includes('NOT as legal advice'));
+  });
+
+  await t('system prompt asks for negotiationEmail on high-risk flags', async () => {
+    const p = buildSystemPrompt();
+    assert.ok(p.includes('negotiationEmail'));
+    assert.ok(p.includes('THE CLIENT'));
+    assert.ok(p.includes('[BRACKETED PLACEHOLDERS]'));
+  });
+
+  await t('validateAnalysis keeps negotiationEmail for high flags, drops for others', async () => {
+    const out = validateAnalysis({
+      score: 80,
+      summary: 'x',
+      flags: [
+        { title: 'h', clause: 'c1', risk: 'high', explanation: 'e', suggestion: 's', negotiationEmail: 'Hi [Name], please fix this.' },
+        { title: 'm', clause: 'c2', risk: 'medium', explanation: 'e', suggestion: 's', negotiationEmail: 'should be dropped' },
+        { title: 'l', clause: 'c3', risk: 'low', explanation: 'e', suggestion: 's' },
+      ],
+    });
+    assert.strictEqual(out.flags[0].negotiationEmail, 'Hi [Name], please fix this.');
+    assert.strictEqual(out.flags[1].negotiationEmail, '');
+    assert.strictEqual(out.flags[2].negotiationEmail, '');
+  });
+
+  await t('DEMO_ANALYSIS: every high flag has a pushback email with placeholders', async () => {
+    const highs = DEMO_ANALYSIS.flags.filter((f) => f.risk === 'high');
+    assert.ok(highs.length >= 5, 'expected several demo high flags, got ' + highs.length);
+    for (const f of highs) {
+      assert.ok(f.negotiationEmail && f.negotiationEmail.length > 40, 'missing email for: ' + f.title);
+      assert.ok(f.negotiationEmail.includes('[') && f.negotiationEmail.includes(']'), 'no [placeholders] in: ' + f.title);
+      assert.ok(/subject:/i.test(f.negotiationEmail), 'no subject line in: ' + f.title);
+    }
+    for (const f of DEMO_ANALYSIS.flags.filter((f) => f.risk !== 'high')) {
+      assert.ok(!f.negotiationEmail, 'non-high flag should not carry an email: ' + f.title);
+    }
   });
 
   await t('validateAnalysis clamps and sorts flags', async () => {
@@ -335,6 +379,58 @@ async function t(name, fn) {
     assert.strictEqual(res.body.error, 'bad_mode');
   });
 
+  await t('POST checkout pack -> 200, monthly price + 5-credit grant metadata', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_PRICE_SINGLE = 'price_single_123';
+    process.env.STRIPE_PRICE_PACK = 'price_pack_789';
+    process.env.STRIPE_PRICE_MONTHLY = 'price_monthly_456';
+    process.env.APP_URL = 'https://fineprint247.com';
+    const factory = makeFakeStripe({});
+    mockStripe(factory);
+    try {
+      const res = mockRes();
+      await checkout(mockReq({ body: { mode: 'pack', email: 'pack@example.com' } }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.url, 'https://checkout.stripe.test/pay/cs_test_1');
+      const p = factory.lastCreate;
+      assert.strictEqual(p.mode, 'payment');
+      assert.strictEqual(p.line_items[0].price, 'price_pack_789');
+      assert.strictEqual(p.metadata.fp_credits_grant, '5');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('POST checkout pack without STRIPE_PRICE_PACK -> 500 payments_misconfigured', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_PRICE_SINGLE = 'price_single_123';
+    process.env.STRIPE_PRICE_MONTHLY = 'price_monthly_456';
+    delete process.env.STRIPE_PRICE_PACK;
+    mockStripe(makeFakeStripe({}));
+    try {
+      const res = mockRes();
+      await checkout(mockReq({ body: { mode: 'pack', email: 'a@b.co' } }), res);
+      assert.strictEqual(res.statusCode, 500);
+      assert.strictEqual(res.body.error, 'payments_misconfigured');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('POST checkout single carries 1-credit grant metadata', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_PRICE_SINGLE = 'price_single_123';
+    process.env.STRIPE_PRICE_MONTHLY = 'price_monthly_456';
+    process.env.APP_URL = 'https://fineprint247.com';
+    const factory = makeFakeStripe({});
+    mockStripe(factory);
+    try {
+      const res = mockRes();
+      await checkout(mockReq({ body: { mode: 'single', email: 's@example.com' } }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(factory.lastCreate.metadata.fp_credits_grant, '1');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
   await t('POST checkout missing price env -> 500 payments_misconfigured', async () => {
     const saved = saveEnv();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
@@ -456,6 +552,42 @@ async function t(name, fn) {
     } finally { unmockStripe(); restoreEnv(saved); }
   });
 
+  await t('checkout.session.completed (pack) grants +5 credits from session metadata', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    const db = { 'pack@example.com': { id: 'cus_10', metadata: { fp_credits: '0' } } };
+    mockStripe(makeFakeStripe(db));
+    try {
+      const event = {
+        id: 'evt_1b', type: 'checkout.session.completed',
+        data: { object: { id: 'cs_9', mode: 'payment', customer: 'cus_10', metadata: { fp_credits_grant: '5' } } },
+      };
+      const res = mockRes();
+      await webhook(streamReq(JSON.stringify(event), { 'stripe-signature': 'sig_valid' }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(db['pack@example.com'].metadata.fp_credits, '5');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('checkout.session.completed (payment) with bad grant metadata defaults to +1', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    const db = { 'buyer@example.com': { id: 'cus_9', metadata: { fp_credits: '0' } } };
+    mockStripe(makeFakeStripe(db));
+    try {
+      const event = {
+        id: 'evt_1c', type: 'checkout.session.completed',
+        data: { object: { id: 'cs_8', mode: 'payment', customer: 'cus_9', metadata: { fp_credits_grant: 'junk' } } },
+      };
+      const res = mockRes();
+      await webhook(streamReq(JSON.stringify(event), { 'stripe-signature': 'sig_valid' }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(db['buyer@example.com'].metadata.fp_credits, '1');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
   await t('checkout.session.completed (subscription) activates sub', async () => {
     const saved = saveEnv();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
@@ -556,7 +688,7 @@ async function t(name, fn) {
   console.log('scan route (entitlement gating, mocked stripe)');
   const LONG_TEXT = 'This is a services agreement between Client and Contractor for design work. '.repeat(10);
 
-  await t('payments live + no email -> 400 email_required', async () => {
+  await t('payments live + no email -> 200 gated preview (score + top flag)', async () => {
     const saved = saveEnv();
     scan._resetRateLimits();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
@@ -564,22 +696,193 @@ async function t(name, fn) {
     try {
       const res = mockRes();
       await scan(mockReq({ body: { text: LONG_TEXT } }), res);
-      assert.strictEqual(res.statusCode, 400);
-      assert.strictEqual(res.body.error, 'email_required');
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.gated, true);
+      assert.strictEqual(res.body.gateReason, 'no_email');
+      assert.strictEqual(res.body.score, DEMO_ANALYSIS.score);
+      assert.ok(typeof res.body.summary === 'string' && res.body.summary.length > 20);
+      assert.strictEqual(res.body.flags.length, 1);
+      assert.strictEqual(res.body.flags[0].risk, 'high'); // top flag = highest severity
+      assert.strictEqual(res.body.gatedCount, DEMO_ANALYSIS.flags.length - 1);
     } finally { unmockStripe(); restoreEnv(saved); }
   });
 
-  await t('payments live + no credits -> 402 payment_required', async () => {
+  await t('payments live + invalid email -> 200 gated preview (treated as no email)', async () => {
     const saved = saveEnv();
     scan._resetRateLimits();
     process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
     mockStripe(makeFakeStripe({}));
     try {
       const res = mockRes();
-      await scan(mockReq({ body: { text: LONG_TEXT, email: 'broke@example.com' } }), res);
-      assert.strictEqual(res.statusCode, 402);
-      assert.strictEqual(res.body.error, 'payment_required');
+      await scan(mockReq({ body: { text: LONG_TEXT, email: 'not-an-email' } }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.gated, true);
+      assert.strictEqual(res.body.gateReason, 'no_email');
     } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('payments live + new email -> 200 full report, free scan claimed (no credits touched)', async () => {
+    const saved = saveEnv();
+    scan._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    const db = {};
+    mockStripe(makeFakeStripe(db));
+    try {
+      const res = mockRes();
+      await scan(mockReq({ body: { text: LONG_TEXT, email: 'New@Example.com' } }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.gated, undefined);
+      assert.strictEqual(res.body.freeScan, true);
+      assert.strictEqual(res.body.flags.length, DEMO_ANALYSIS.flags.length);
+      // Customer created, normalized email, free scan recorded, no credits granted/spent.
+      const rec = db['new@example.com'];
+      assert.ok(rec, 'customer should exist under the normalized email');
+      assert.strictEqual(rec.metadata.fp_free_used, '1');
+      assert.ok(!rec.metadata.fp_credits, 'free claim must not mint credits');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('payments live + same email twice -> second scan is gated (free_used)', async () => {
+    const saved = saveEnv();
+    scan._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    const db = {};
+    mockStripe(makeFakeStripe(db));
+    try {
+      let res = mockRes();
+      await scan(mockReq({ body: { text: LONG_TEXT, email: 'twice@example.com' } }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.freeScan, true);
+      res = mockRes();
+      await scan(mockReq({ body: { text: LONG_TEXT, email: 'twice@example.com' } }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.gated, true);
+      assert.strictEqual(res.body.gateReason, 'free_used');
+      assert.strictEqual(res.body.gatedCount, DEMO_ANALYSIS.flags.length - 1);
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('free claim normalizes email: uppercase + plus-addressing share one claim', async () => {
+    const saved = saveEnv();
+    scan._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    const db = {};
+    mockStripe(makeFakeStripe(db));
+    try {
+      let res = mockRes();
+      await scan(mockReq({ body: { text: LONG_TEXT, email: 'PRO+Tag@Example.COM' } }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.freeScan, true);
+      assert.ok(db['pro+tag@example.com'], 'stored under normalized email, got: ' + Object.keys(db));
+      // Same address, different casing/format -> already claimed, not a second free scan.
+      res = mockRes();
+      await scan(mockReq({ body: { text: LONG_TEXT, email: 'pro+tag@example.com' } }), res);
+      assert.strictEqual(res.body.gated, true);
+      assert.strictEqual(res.body.gateReason, 'free_used');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('racing free claims for the same email grant only one free scan', async () => {
+    const saved = saveEnv();
+    scan._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    const db = {};
+    mockStripe(makeFakeStripe(db));
+    try {
+      const res1 = mockRes();
+      const res2 = mockRes();
+      await Promise.all([
+        scan(mockReq({ body: { text: LONG_TEXT, email: 'race@example.com' } }), res1),
+        scan(mockReq({ body: { text: LONG_TEXT, email: 'race@example.com' } }), res2),
+      ]);
+      const full = [res1, res2].filter((r) => r.body.freeScan === true).length;
+      const gated = [res1, res2].filter((r) => r.body.gated === true).length;
+      assert.strictEqual(full, 1, 'exactly one full free report');
+      assert.strictEqual(gated, 1, 'the loser gets the gated report');
+      assert.strictEqual(db['race@example.com'].metadata.fp_free_used, '1');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('free claim when Stripe fails mid-claim -> 502 free_scan_failed (no report served)', async () => {
+    const saved = saveEnv();
+    scan._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    const factory = makeFakeStripe({});
+    // Break customer creation to simulate a Stripe outage mid-claim.
+    const broken = () => {
+      const stripe = factory();
+      stripe.customers.create = async () => { throw new Error('stripe exploded'); };
+      return stripe;
+    };
+    mockStripe(broken);
+    try {
+      const res = mockRes();
+      await scan(mockReq({ body: { text: LONG_TEXT, email: 'unlucky@example.com' } }), res);
+      assert.strictEqual(res.statusCode, 502);
+      assert.strictEqual(res.body.error, 'free_scan_failed');
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('claimFreeScan helper: sets fp_free_used, idempotent on re-claim', async () => {
+    const saved = saveEnv();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    const db = { 'old@example.com': { id: 'cus_old', metadata: { fp_credits: '2' } } };
+    mockStripe(makeFakeStripe(db));
+    try {
+      const { claimFreeScan } = require('../lib/entitlements');
+      const first = await claimFreeScan('  OLD@example.com ');
+      assert.strictEqual(first.alreadyClaimed, false);
+      assert.strictEqual(first.customerId, 'cus_old');
+      assert.strictEqual(db['old@example.com'].metadata.fp_free_used, '1');
+      assert.strictEqual(db['old@example.com'].metadata.fp_credits, '2'); // untouched
+      const second = await claimFreeScan('old@example.com');
+      assert.strictEqual(second.alreadyClaimed, true);
+    } finally { unmockStripe(); restoreEnv(saved); }
+  });
+
+  await t('identical contract text reuses the cached analysis (one LLM call for preview + unlock)', async () => {
+    const saved = saveEnv();
+    scan._resetRateLimits();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    delete process.env.LLM_API_KEY;
+    process.env.OPENAI_API_KEY = 'sk-test-fake';
+    const db = {};
+    mockStripe(makeFakeStripe(db));
+    let fetchCalls = 0;
+    const savedFetch = global.fetch;
+    global.fetch = async () => {
+      fetchCalls++;
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                score: 61,
+                summary: 'A fairly risky agreement with several clauses worth negotiating before you sign.',
+                flags: [{ title: 'Uncapped indemnity', risk: 'high', clause: 'Contractor shall indemnify Client without limitation.', whyItMatters: 'Exposure can exceed the project fee.', whatToDo: 'Cap it at the fees paid.' }],
+              }),
+            },
+          }],
+        }),
+      };
+    };
+    try {
+      const text = 'cache-probe contract text. ' + 'x'.repeat(200);
+      // 1. anonymous gated preview
+      let res = mockRes();
+      await scan(mockReq({ body: { text } }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.gated, true);
+      assert.strictEqual(res.body.score, 61);
+      // 2. email unlock of the same text — must reuse the cached analysis
+      res = mockRes();
+      await scan(mockReq({ body: { text, email: 'cache@example.com' } }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.freeScan, true);
+      assert.strictEqual(res.body.score, 61, 'unlock must show the same score as the preview');
+      assert.strictEqual(fetchCalls, 1, 'second pass over identical text must not re-run the LLM');
+    } finally { global.fetch = savedFetch; unmockStripe(); restoreEnv(saved); }
   });
 
   await t('payments live + credits -> 200 and credit decremented', async () => {

@@ -1,12 +1,19 @@
 /**
  * POST /api/checkout — create a Stripe Checkout session.
  *
- * Body: { "mode": "single" | "subscription", "email": "buyer@example.com" }
+ * Body: { "mode": "single" | "pack" | "subscription", "email": "buyer@example.com" }
  *   - "single":       $5 one-time, grants 1 scan credit (STRIPE_PRICE_SINGLE)
+ *   - "pack":         $20 one-time, grants 5 scan credits (STRIPE_PRICE_PACK).
+ *                      Hidden in the UI unless STRIPE_PRICE_PACK is set —
+ *                      see /api/tiers.
  *   - "subscription": $29/month unlimited scans (STRIPE_PRICE_MONTHLY)
  *
  * The buyer's email is passed as both customer_email and client_reference_id
  * so the webhook can credit the right Stripe Customer afterward.
+ *
+ * Payment sessions carry metadata fp_credits_grant ("1" or "5") so the
+ * webhook knows how many credits to add — older sessions without it
+ * default to 1.
  *
  * Returns 200 { url } — the frontend redirects the browser there.
  * Returns 501 payments_not_configured until STRIPE_SECRET_KEY is set.
@@ -35,7 +42,7 @@ module.exports = async (req, res) => {
   }
 
   const mode = (req.body && req.body.mode) || 'single';
-  if (!['single', 'subscription'].includes(mode)) {
+  if (!['single', 'pack', 'subscription'].includes(mode)) {
     return res.status(400).json({ error: 'bad_mode' });
   }
 
@@ -56,7 +63,11 @@ module.exports = async (req, res) => {
   }
 
   const priceId =
-    mode === 'subscription' ? process.env.STRIPE_PRICE_MONTHLY : process.env.STRIPE_PRICE_SINGLE;
+    mode === 'subscription'
+      ? process.env.STRIPE_PRICE_MONTHLY
+      : mode === 'pack'
+        ? process.env.STRIPE_PRICE_PACK
+        : process.env.STRIPE_PRICE_SINGLE;
   if (!priceId) {
     console.error('checkout misconfigured: missing price env var for mode', mode);
     return res.status(500).json({
@@ -92,6 +103,8 @@ module.exports = async (req, res) => {
       line_items: [{ price: priceId, quantity: 1 }],
       customer: customerId,
       client_reference_id: email,
+      // Tells the webhook how many credits this purchase grants.
+      metadata: mode === 'subscription' ? {} : { fp_credits_grant: mode === 'pack' ? '5' : '1' },
       success_url: `${appUrl}/scan.html?paid=1&email=${encodeURIComponent(email)}`,
       cancel_url: `${appUrl}/#pricing`,
     });

@@ -17,7 +17,8 @@
     <div class="nav-links">
       <a class="hide-sm" href="/#how">How it works</a>
       <a class="hide-sm" href="/#pricing">Pricing</a>
-      <a class="btn small" href="/#waitlist">Get updates</a>
+      <a class="hide-sm" href="/#free-scan">Free scan</a>
+      <a class="btn small" href="/scan.html">Scan a contract</a>
     </div>
   </div>
 </nav>
@@ -27,7 +28,7 @@
 
     <div class="panel" id="inputPanel">
       <h1>Scan your contract</h1>
-      <p class="lede">Paste the text or upload the file. You'll get a risk score and every risky clause explained in plain English.</p>
+      <p class="lede">Paste the text or upload the file. You&rsquo;ll get a risk score and every risky clause explained in plain English &mdash; your first full report is free, no card required.</p>
 
       <div class="paid-notice" id="paidNotice" role="status">
         Payment confirmed — your scans are ready. Just hit “Scan contract” below.
@@ -37,7 +38,7 @@
 
       <label class="field-label" for="emailInput">Email</label>
       <input type="email" id="emailInput" class="email-input" placeholder="you@example.com" autocomplete="email">
-      <p class="file-hint">Used only to verify your purchase. Never shared or sold.</p>
+      <p class="file-hint">Unlocks your free full report (and verifies paid scans). Never shared or sold.</p>
 
       <label class="field-label" for="contractText" style="margin-top:16px">Contract text</label>
       <textarea id="contractText" placeholder="Paste your contract here…"></textarea>
@@ -89,18 +90,21 @@
 
       <div id="flagsList" class="flags"></div>
 
-      <div class="result-actions">
+      <div class="panel" id="unlockPanel" style="display:none"></div>
+
+      <div class="result-actions" id="resultActions">
         <button class="btn ghost" id="copyBtn">Copy report</button>
         <button class="btn ghost" id="downloadBtn">Download (.md)</button>
         <button class="btn ghost" id="printBtn">Print / save PDF</button>
         <button class="btn ghost" id="scanAnotherBtn">Scan another</button>
       </div>
 
-      <div class="panel" style="margin-top:20px">
+      <div class="panel" id="moreScansPanel" style="margin-top:20px">
         <h3 style="margin-top:0">Need more scans?</h3>
-        <p class="lede">Single scans are $5, or go unlimited for $29/month.</p>
+        <p class="lede">Single scans are $5 — a lawyer charges $300–$600 for the same review. Or go unlimited for $29/month.</p>
         <div class="scan-actions" style="margin-top:0">
-          <button class="btn small" data-pay="single">Buy a scan — $5</button>
+          <button class="btn small" data-pay="single">Scan my contract — $5</button>
+          <button class="btn small ghost pack-tier" data-pay="pack" style="display:none">5-scan pack — $20</button>
           <button class="btn small ghost" data-pay="subscription">Unlimited — $29/mo</button>
         </div>
       </div>

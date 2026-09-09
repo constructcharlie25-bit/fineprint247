@@ -31,7 +31,7 @@ const ROUTES = {
   '/api/sample': require('../api/sample'),
   '/api/checkout': require('../api/checkout'),
   '/api/webhook': require('../api/webhook'),
-  '/api/waitlist': require('../api/waitlist'),
+  '/api/tiers': require('../api/tiers'),
 };
 
 const TYPES = {

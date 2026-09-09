@@ -2,7 +2,9 @@
  * POST /api/webhook — Stripe webhook receiver.
  *
  * Verified events:
- *   checkout.session.completed — single purchase  -> +1 scan credit
+ *   checkout.session.completed — single purchase  -> +N scan credits
+ *                                (N from session metadata fp_credits_grant,
+ *                                default 1)
  *                                subscription      -> fp_sub_active = "true"
  *   customer.subscription.created / updated       -> fp_sub_active from status
  *   customer.subscription.deleted                 -> fp_sub_active = "false"
@@ -73,7 +75,10 @@ async function handleEvent(stripe, event) {
         return;
       }
       if (obj.mode === 'payment') {
-        await addCredits(customerId, 1);
+        // Sessions created by /api/checkout carry fp_credits_grant ("1" or
+        // "5"); older sessions without it default to 1.
+        const grant = parseInt((obj.metadata && obj.metadata.fp_credits_grant) || '1', 10);
+        await addCredits(customerId, Number.isFinite(grant) && grant > 0 ? grant : 1);
       } else if (obj.mode === 'subscription') {
         await setSubscriptionActive(customerId, true);
       }

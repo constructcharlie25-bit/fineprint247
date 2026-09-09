@@ -24,16 +24,16 @@ suggestion.
 
 ```
 fineprint/
-├── index.html            # Landing page: hero, how-it-works, pricing, FAQ, waitlist, disclaimer
+├── index.html            # Landing page: hero, how-it-works, pricing, FAQ, free-scan capture, disclaimer
 ├── scan.html             # Scanner app: textarea + file upload, results view
 ├── css/style.css         # All styles (mobile-friendly, no framework)
-├── js/scan.js            # Scanner UI logic: upload, render score/flags, copy/download, pay buttons
+├── js/scan.js            # Scanner UI logic: upload, gated reports, unlock flow, negotiation emails, pay buttons
 ├── api/
-│   ├── scan.js           # POST /api/scan — entitlement check → extract text (if file) → analyze → JSON report
+│   ├── scan.js           # POST /api/scan — extract text → analyze → gated preview or full report (free-tier claim inline)
 │   ├── sample.js         # GET /api/sample — demo contract text for "Try the sample"
-│   ├── checkout.js       # POST /api/checkout — Stripe Checkout sessions ($5 single / $29 mo)
+│   ├── checkout.js       # POST /api/checkout — Stripe Checkout sessions ($5 single / $20 5-pack / $29 mo)
 │   ├── webhook.js        # POST /api/webhook — Stripe events → credits/subscription on customer metadata
-│   └── waitlist.js       # POST /api/waitlist — email capture (file-based, see note)
+│   └── tiers.js          # GET /api/tiers — which pricing tiers are enabled (pack hidden unless STRIPE_PRICE_PACK set)
 ├── lib/
 │   ├── analysis.js       # System prompt, analyzeContract(), extractText(), demo fixtures
 │   ├── stripe.js         # Lazy Stripe client (null when STRIPE_SECRET_KEY unset)
@@ -67,8 +67,20 @@ fineprint/
      built-in sample contract (score 72/100, 9 flags) so the whole UI flow is
      testable with zero keys and zero spend.
 3. **Report** — the frontend renders a score dial, band label (Low/Medium/High
-   risk), summary, and flag cards (clause quote → why it matters → what to do),
+   risk), summary, and flag cards (clause quote → why it matters → what to
+   do → copy-paste pushback email for high-severity flags → lawyer nudge),
    with copy-to-clipboard and Markdown download.
+
+## Free tier (no database)
+
+Everyone sees the risk score + top flag free. Entering an email unlocks the
+full report — the first scan per email is free (`fp_free_used="1"` recorded
+on the Stripe Customer, no card required). After that it's credits or a
+subscription. See `lib/entitlements.js#claimFreeScan` and the gate in
+`api/scan.js`. Concurrent claims for one email are serialized per instance.
+Identical contract text reuses a 30-minute in-process analysis cache, so the
+anonymous preview + email unlock costs one LLM call and shows one consistent
+score.
 
 ## Run locally
 
@@ -81,7 +93,7 @@ node test/e2e-server.js        # → http://localhost:3000/scan.html
 # Runs in demo mode unless OPENAI_API_KEY is set (create a .env from .env.example).
 
 # Option B — API tests only:
-npm test                       # 47 tests, all offline
+npm test                       # 62 tests, all offline
 
 # Option C — Vercel dev (closest to production):
 npx vercel dev
@@ -91,22 +103,22 @@ npx vercel dev
 
 | Route | Method | Body | Notes |
 |---|---|---|---|
-| `/api/scan` | POST | `{text, email?}` or `{fileBase64, filename, email?}` | 200 → report; 400/413/422 on bad input; 400 `email_required` / 402 `payment_required` when payments are live |
+| `/api/scan` | POST | `{text, email?}` or `{fileBase64, filename, email?}` | 200 → full report, or gated preview `{gated: true, gateReason}` when payments are live; 400/413/422 on bad input; 500/502 on Stripe failures |
 | `/api/sample` | GET | — | demo contract text |
-| `/api/checkout` | POST | `{mode: "single"\|"subscription", email}` | 200 → `{url}`; 501 until `STRIPE_SECRET_KEY` is set |
-| `/api/webhook` | POST | Stripe event (raw body) | verifies signature; grants credits / toggles subscription |
-| `/api/waitlist` | POST | `{email}` | file-based; replace with email provider before launch |
+| `/api/checkout` | POST | `{mode: "single"\|"pack"\|"subscription", email}` | 200 → `{url}`; 501 until `STRIPE_SECRET_KEY` is set; `pack` needs `STRIPE_PRICE_PACK` |
+| `/api/webhook` | POST | Stripe event (raw body) | verifies signature; grants credits (count from session metadata) / toggles subscription |
+| `/api/tiers` | GET | — | `{tiers: {single, pack, subscription}}`; `pack` is false unless `STRIPE_PRICE_PACK` is set |
 
 ## Payments status
 
 Stripe Checkout is **fully wired**: `api/checkout.js` creates real Checkout
-sessions ($5 one-time via `STRIPE_PRICE_SINGLE`, $29/mo via
-`STRIPE_PRICE_MONTHLY`), `api/webhook.js` verifies signatures and records
-entitlements on the Stripe Customer's metadata (`fp_credits`,
-`fp_sub_active`), and `api/scan.js` enforces them (402 when a buyer is out
-of scans). No database — see `lib/entitlements.js`. Until
-`STRIPE_SECRET_KEY` is set, checkout returns `501 payments_not_configured`
-and scans stay free (demo/beta mode).
+sessions ($5 one-time via `STRIPE_PRICE_SINGLE`, $20 / 5-scan pack via
+`STRIPE_PRICE_PACK`, $29/mo via `STRIPE_PRICE_MONTHLY`), `api/webhook.js`
+verifies signatures and records entitlements on the Stripe Customer's
+metadata (`fp_credits`, `fp_sub_active`, `fp_free_used`), and `api/scan.js`
+enforces them (gated preview once the free scan is used). No database — see
+`lib/entitlements.js`. Until `STRIPE_SECRET_KEY` is set, checkout returns
+`501 payments_not_configured` and scans stay free (demo/beta mode).
 
 ## Security notes
 
