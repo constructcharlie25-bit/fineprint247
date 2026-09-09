@@ -2,7 +2,9 @@
  * POST /api/scan — scan a contract.
  *
  * Request body (JSON): { text } or { fileBase64, fileName, mimeType }, plus
- * an optional email query param (?email=) or body.email.
+ * an optional email query param (?email=) or body.email, plus an optional
+ * body.contractType (one of: msa, sow, nda, ica, lease, other) that tunes
+ * the analysis toward that agreement type.
  *
  * Pricing model (when STRIPE_SECRET_KEY is set):
  * - FREE: the user gets a TEASER — the 0-100 risk score, severity counts,
@@ -43,6 +45,15 @@ const SCAN_LIMIT = 20;
 const SCAN_WINDOW_MS = 10 * 60 * 1000;
 const MAX_TEXT_CHARS = 100000;
 const MAX_FILE_BYTES = 4 * 1024 * 1024;
+
+// Contract types the scan page offers (select values). Anything else is
+// treated as 'other' so a crafted request can't steer the system prompt.
+const CONTRACT_TYPES = new Set(['msa', 'sow', 'nda', 'ica', 'lease', 'other']);
+
+function normalizeContractType(v) {
+  const key = String(v || '').toLowerCase();
+  return CONTRACT_TYPES.has(key) ? key : 'other';
+}
 
 // Serialize same-email free claims within this instance so a double-click
 // can't slip two claims past the non-atomic Stripe metadata read/write.
@@ -200,11 +211,12 @@ module.exports = async (req, res) => {
   const email = normalizeEmail(
     (req.body && req.body.email) || (req.query && req.query.email) || ''
   );
+  const contractType = normalizeContractType(req.body && req.body.contractType);
   const paymentsLive = !!getStripe();
 
   // Beta path: payments not wired up yet — everyone gets the full report.
   if (!paymentsLive) {
-    const client = toClientReport(await analyzeContract(text));
+    const client = toClientReport(await analyzeContract(text, contractType));
     return res.status(200).json({
       demoMode: client.demoMode,
       score: client.score,
@@ -236,7 +248,7 @@ module.exports = async (req, res) => {
 
   // PAID path: subscriber or credit holder gets the full report now.
   if (entitlement.subActive || entitlement.credits > 0) {
-    const client = toClientReport(await analyzeContract(text));
+    const client = toClientReport(await analyzeContract(text, contractType));
     if (!entitlement.subActive && entitlement.customerId) {
       try {
         await decrementCredit(entitlement.customerId);
@@ -299,7 +311,7 @@ module.exports = async (req, res) => {
 
   let result;
   try {
-    result = await analyzeContract(text);
+    result = await analyzeContract(text, contractType);
   } catch (err) {
     console.error('scan: analysis failed after teaser claim:', err && err.message);
     return res.status(502).json({

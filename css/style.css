@@ -393,7 +393,7 @@ input[type=file] { font-size: .95rem; }
 @media print {
   .nav, footer, .scan-actions, .result-actions, .sev-filter,
   .spinner, .error-box, .history-panel, .mode-note-extra, #scanAnotherBtn,
-  #chatPanel { display: none !important; }
+  #chatPanel, #sharePanel { display: none !important; }
   #inputPanel { display: none !important; }
   #results { display: block !important; }
   .panel { border: 0; padding: 0; }
@@ -403,3 +403,44 @@ input[type=file] { font-size: .95rem; }
   a { text-decoration: none; color: inherit; }
   .disclaimer { margin: 24px 0 0; }
 }
+
+/* ---------- Track B: traffic & conversion ---------- */
+
+/* Contract type selector (scan form) */
+.select-input {
+  width: 100%; padding: 12px 14px; border: 1px solid var(--line);
+  border-radius: var(--radius); font-size: 1rem; box-sizing: border-box;
+  background: #fff; color: var(--ink);
+}
+.select-input:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+
+/* Red flag of the week (homepage) */
+.flag-kicker {
+  text-align: center; color: var(--high); font-weight: 800; font-size: .85rem;
+  text-transform: uppercase; letter-spacing: .08em; margin: 0 0 6px;
+}
+.flag-card {
+  max-width: 720px; margin: 24px auto 0; background: #fff;
+  border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 24px 26px;
+}
+.flag-label {
+  font-weight: 700; font-size: .82rem; text-transform: uppercase;
+  letter-spacing: .04em; color: var(--high); margin: 0 0 8px;
+}
+.clause-fix { border-left-color: var(--low); }
+.flag-email { margin-top: 16px; border: 1px solid var(--line); border-radius: var(--radius); }
+.flag-email summary { padding: 14px 16px; cursor: pointer; font-weight: 600; }
+.flag-email .neg-email-text {
+  margin: 0 16px 16px; white-space: pre-wrap; font-family: inherit; font-size: .92rem;
+  background: var(--soft); border-radius: 8px; padding: 14px 16px; color: var(--ink);
+}
+.flag-source { color: var(--muted); font-size: .85rem; max-width: 560px; margin: 12px auto 0; }
+
+/* Share-your-score panel (scan results) */
+.share-panel h3 { margin-top: 0; }
+.share-score { display: flex; align-items: baseline; gap: 8px; margin: 4px 0 8px; }
+.share-number { font-size: 2.4rem; font-weight: 800; line-height: 1; }
+.share-meta { font-size: 1.05rem; color: var(--muted); font-weight: 600; }
+.share-note { color: var(--muted); font-size: .9rem; margin: 0 0 14px; }
+.share-actions { display: flex; gap: 10px; flex-wrap: wrap; }

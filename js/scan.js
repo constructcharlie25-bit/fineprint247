@@ -14,6 +14,7 @@
 
   var textEl = document.getElementById('contractText');
   var emailEl = document.getElementById('emailInput');
+  var contractTypeEl = document.getElementById('contractType');
   var charCount = document.getElementById('charCount');
   var scanBtn = document.getElementById('scanBtn');
   var sampleBtn = document.getElementById('sampleBtn');
@@ -29,6 +30,8 @@
   var unlockPanel = document.getElementById('unlockPanel');
   var resultActions = document.getElementById('resultActions');
   var moreScansPanel = document.getElementById('moreScansPanel');
+  var sharePanel = document.getElementById('sharePanel');
+  var sharePanelBody = document.getElementById('sharePanelBody');
   var historyList = document.getElementById('historyList');
   var historyPanel = document.getElementById('historyPanel');
   var errorBox = document.getElementById('errorBox');
@@ -389,6 +392,53 @@
     applyFilter();
   });
 
+  /* ---------- share your score (full reports only — score + band, never findings) ---------- */
+
+  function riskBandName(score) {
+    var s = Number(score) || 0;
+    return s >= 70 ? 'High' : s >= 40 ? 'Medium' : 'Low';
+  }
+
+  function renderSharePanel(data) {
+    if (!sharePanel || !sharePanelBody) return;
+    var s = Math.max(0, Math.min(100, Math.round(Number(data.score) || 0)));
+    var band = riskBandName(s);
+    var color = scoreColor(s);
+    var shareText = 'My client contract scored ' + s + '/100 (' + band.toLowerCase() +
+      ' risk) on FinePrint\u2019s 60-second risk check. Scan yours free: https://www.fineprint247.com/scan.html';
+    var xUrl = 'https://twitter.com/intent/tweet?text=' + encodeURIComponent(shareText);
+    var liUrl = 'https://www.linkedin.com/sharing/share-offsite/?url=' +
+      encodeURIComponent('https://www.fineprint247.com/scan.html');
+    sharePanelBody.innerHTML =
+      '<div class="share-score">' +
+        '<span class="share-number" style="color:' + color + '">' + s + '</span>' +
+        '<span class="share-meta">/ 100 &middot; ' + esc(band) + ' risk</span>' +
+      '</div>' +
+      '<p class="share-note">Only your score leaves this page — never your contract text or the findings.</p>' +
+      '<div class="share-actions">' +
+        '<a class="btn small" href="' + xUrl + '" target="_blank" rel="noopener">Share on X</a>' +
+        '<a class="btn small ghost" href="' + liUrl + '" target="_blank" rel="noopener">Share on LinkedIn</a>' +
+        '<button type="button" class="btn small ghost" id="shareCopyBtn" data-share-text="' + esc(shareText) + '">Copy text</button>' +
+      '</div>';
+    sharePanel.style.display = '';
+  }
+
+  function hideSharePanel() {
+    if (sharePanel) sharePanel.style.display = 'none';
+  }
+
+  if (sharePanelBody) {
+    sharePanelBody.addEventListener('click', function (e) {
+      var btn = e.target.closest('#shareCopyBtn');
+      if (!btn) return;
+      var txt = btn.getAttribute('data-share-text') || '';
+      navigator.clipboard.writeText(txt).then(
+        function () { showToast('Share text copied — paste it anywhere.'); },
+        function () { showToast('Copy failed — select the text manually.'); }
+      );
+    });
+  }
+
   /* ---------- full report ---------- */
 
   function renderResults(data) {
@@ -411,6 +461,8 @@
     // unlock flow set one from the pending token just before this render.
     if (data.chatToken) setChatToken(data.chatToken, reportEmail);
     showChatPanel(chatToken ? 'paid' : null);
+    // Viral loop: share the score (score + band only — never findings).
+    renderSharePanel(data);
     resultsEl.classList.add('visible');
     resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     saveHistory(data);
@@ -486,6 +538,7 @@
     } else {
       hideChatPanel();
     }
+    hideSharePanel(); // share panel belongs to full reports, not teasers
     resultsEl.classList.add('visible');
     resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -516,6 +569,7 @@
     resultActions.style.display = 'none';
     moreScansPanel.style.display = 'none';
     hideChatPanel(); // no fresh token here — Q&A needs a report
+    hideSharePanel(); // no full report here — nothing to share
     resultsEl.classList.add('visible');
     resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -749,7 +803,7 @@
       return;
     }
     clearError();
-    runScan({ text: text, email: email });
+    runScan({ text: text, email: email, contractType: contractTypeEl ? contractTypeEl.value : undefined });
   });
 
   function runScan(payload) {
@@ -757,6 +811,7 @@
     reportEmail = (payload && payload.email) || '';
     var body = { email: payload.email };
     if (payload.text) body.text = payload.text;
+    if (payload.contractType) body.contractType = payload.contractType;
     if (payload.fileBase64) {
       body.fileBase64 = payload.fileBase64;
       body.filename = payload.fileName;
