@@ -244,11 +244,32 @@ module.exports = async (req, res) => {
         console.error('scan: credit decrement failed:', err && err.message);
       }
     }
+    // Seal the report as a Q&A context token so paid users get follow-up
+    // chat about THIS report via /api/chat — same token format as the
+    // unlock token, no new LLM call, no extra env var. Best-effort: if the
+    // report is too large to tokenize (or sealing fails), the scan still
+    // succeeds and chat is simply unavailable for it.
+    let chatToken = null;
+    try {
+      const sealed = sealUnlockToken(
+        {
+          demoMode: client.demoMode,
+          score: client.score,
+          summary: client.summary,
+          flags: client.flags,
+        },
+        email
+      );
+      if (!sealed.tooLarge) chatToken = sealed.token;
+    } catch (err) {
+      console.error('scan: chat token sealing failed (chat unavailable):', err && err.message);
+    }
     return res.status(200).json({
       demoMode: client.demoMode,
       score: client.score,
       summary: client.summary,
       flags: client.flags,
+      chatToken,
     });
   }
 

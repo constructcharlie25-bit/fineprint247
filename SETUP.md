@@ -117,6 +117,10 @@ stays in demo mode (canned sample report).
 - After payment, Stripe fires `checkout.session.completed` to
   `/api/webhook`, which writes scan credits (`fp_credits`) or the
   subscription flag (`fp_sub_active`) onto the Stripe Customer's metadata.
+  One-time payments also set `fp_ever_paid`, so follow-up Q&A (`/api/chat`)
+  keeps treating the buyer as paid after their last credit is spent; free
+  Q&A questions are counted in `fp_chat_used` (2 per free user, then a $5
+  upsell).
 - The free tier is a **teaser**: `POST /api/scan` with a new email returns
   the 0–100 risk score, severity counts, and the first finding in full —
   one teaser per email (`fp_free_used`). The response also carries an

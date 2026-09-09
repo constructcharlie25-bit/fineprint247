@@ -29,6 +29,7 @@ const { getStripe } = require('../lib/stripe');
 const {
   addCredits,
   setSubscriptionActive,
+  markEverPaid,
   normalizeEmail,
 } = require('../lib/entitlements');
 
@@ -79,6 +80,10 @@ async function handleEvent(stripe, event) {
         // "5"); older sessions without it default to 1.
         const grant = parseInt((obj.metadata && obj.metadata.fp_credits_grant) || '1', 10);
         await addCredits(customerId, Number.isFinite(grant) && grant > 0 ? grant : 1);
+        // Lifetime-paid marker for chat Q&A gating (api/chat.js): a buyer
+        // who later spends their last credit is still a paying customer,
+        // not a free-teaser user.
+        await markEverPaid(customerId);
       } else if (obj.mode === 'subscription') {
         await setSubscriptionActive(customerId, true);
       }

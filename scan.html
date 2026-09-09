@@ -99,6 +99,18 @@
         <button class="btn ghost" id="scanAnotherBtn">Scan another</button>
       </div>
 
+      <div class="panel chat-panel" id="chatPanel" style="display:none">
+        <h3>Ask about your contract</h3>
+        <p class="chat-quota" id="chatQuota"></p>
+        <div class="chat-log" id="chatLog" aria-live="polite" aria-label="Chat messages"></div>
+        <form class="chat-form" id="chatForm">
+          <input type="text" id="chatInput" class="chat-input" placeholder="Ask a follow-up question&hellip;" autocomplete="off" maxlength="2000" aria-label="Ask a follow-up question">
+          <button type="submit" class="btn small" id="chatSend">Ask</button>
+        </form>
+        <div class="chat-upsell" id="chatUpsell" style="display:none"></div>
+        <p class="chat-fineprint">FinePrint answers are general information, not legal advice. Not a law firm.</p>
+      </div>
+
       <div class="panel" id="moreScansPanel" style="margin-top:20px">
         <h3 style="margin-top:0">Need more scans?</h3>
         <p class="lede">Single scans are $5 — a lawyer charges $300–$600 for the same review. Or go unlimited for $29/month.</p>

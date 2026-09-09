@@ -35,11 +35,197 @@
   var paidNotice = document.getElementById('paidNotice');
   var modeBadge = document.getElementById('modeBadge');
   var modeNote = document.getElementById('modeNote');
+  var chatPanel = document.getElementById('chatPanel');
+  var chatLog = document.getElementById('chatLog');
+  var chatQuota = document.getElementById('chatQuota');
+  var chatForm = document.getElementById('chatForm');
+  var chatInput = document.getElementById('chatInput');
+  var chatSend = document.getElementById('chatSend');
+  var chatUpsell = document.getElementById('chatUpsell');
 
   var SCAN_BTN_LABEL = 'See my free risk score';
 
   var lastResults = null;
   var activeFilter = 'all';
+  var reportEmail = '';
+
+  /* ---------- follow-up Q&A chat ("Ask about your contract") ---------- */
+
+  // The chat token is the unlock token issued with the teaser / paid scan.
+  // The server decrypts it and re-derives the report context — the client
+  // never sends report content. Kept in sessionStorage (never in a URL).
+  var CHAT_KEY = 'fineprint_chat_token_v1';
+  var chatToken = null;
+  var chatEmail = '';
+  var chatHistory = []; // [{role, content}], capped locally
+  var chatTier = null;  // 'free' | 'paid' | 'subscriber' (server-confirmed on first answer)
+  var chatExhausted = false;
+
+  function setChatToken(token, email) {
+    chatToken = token || null;
+    chatEmail = email || '';
+    try {
+      if (chatToken) sessionStorage.setItem(CHAT_KEY, JSON.stringify({ token: chatToken, email: chatEmail }));
+      else sessionStorage.removeItem(CHAT_KEY);
+    } catch (e) {}
+  }
+
+  function setChatEnabled(on) {
+    if (chatInput) chatInput.disabled = !on;
+    if (chatSend) chatSend.disabled = !on;
+  }
+
+  function resetChat() {
+    chatHistory = [];
+    chatTier = null;
+    chatExhausted = false;
+    if (chatLog) chatLog.innerHTML = '';
+    if (chatUpsell) { chatUpsell.innerHTML = ''; chatUpsell.style.display = 'none'; }
+    if (chatForm) chatForm.style.display = '';
+    setChatEnabled(true);
+  }
+
+  function showChatPanel(tierHint) {
+    if (!chatPanel) return;
+    if (!chatToken) { chatPanel.style.display = 'none'; return; }
+    resetChat();
+    chatTier = tierHint || null;
+    updateChatQuota(null);
+    chatPanel.style.display = '';
+  }
+
+  function hideChatPanel() {
+    if (chatPanel) chatPanel.style.display = 'none';
+    setChatToken(null, '');
+  }
+
+  function updateChatQuota(questionsLeft) {
+    if (!chatQuota) return;
+    if (chatExhausted) { chatQuota.innerHTML = ''; return; }
+    if (chatTier === 'free') {
+      var left = (questionsLeft === null || questionsLeft === undefined) ? 2 : questionsLeft;
+      chatQuota.innerHTML = left > 0
+        ? 'You have <strong>' + left + ' free question' + (left === 1 ? '' : 's') + '</strong> about this report.'
+        : '';
+    } else {
+      chatQuota.textContent = 'Ask anything about this report \u2014 Q&A is included' +
+        (chatTier === 'subscriber' ? ' with your subscription.' : ' with your purchase.');
+    }
+  }
+
+  function appendChatMsg(role, text, isError) {
+    var div = document.createElement('div');
+    div.className = 'chat-msg ' + (role === 'user' ? 'user' : (isError ? 'error' : 'assistant'));
+    div.textContent = text;
+    chatLog.appendChild(div);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    return div;
+  }
+
+  function showChatTyping() {
+    var div = document.createElement('div');
+    div.className = 'chat-msg assistant chat-typing';
+    div.setAttribute('aria-label', 'FinePrint is typing');
+    div.innerHTML = '<span></span><span></span><span></span>';
+    chatLog.appendChild(div);
+    chatLog.scrollTop = chatLog.scrollHeight;
+    return div;
+  }
+
+  function showChatUpsell(message) {
+    chatExhausted = true;
+    setChatEnabled(false);
+    if (chatForm) chatForm.style.display = 'none';
+    if (chatQuota) chatQuota.innerHTML = '';
+    chatUpsell.innerHTML =
+      '<strong>' + esc(message || 'You\u2019ve used your 2 free questions.') + '</strong>' +
+      '<div class="unlock-row">' +
+        '<button class="btn small" data-pay="single">Unlock the full report \u2014 $5</button>' +
+        '<button class="btn small ghost pack-tier" data-pay="pack" style="display:none">5-scan pack \u2014 $20</button>' +
+        '<button class="btn small ghost" data-pay="subscription">Unlimited \u2014 $29/mo</button>' +
+      '</div>';
+    chatUpsell.style.display = '';
+    refreshPackVisibility();
+  }
+
+  function handleChatError(status, d) {
+    var msg = (d && d.message) || '';
+    if (status === 402 && d.error === 'free_questions_exhausted') {
+      appendChatMsg('assistant', msg);
+      showChatUpsell(msg);
+      return;
+    }
+    if (status === 410) {
+      appendChatMsg('assistant',
+        msg || 'This report\u2019s Q&A link expired after 24 hours. Scan again for a fresh report with Q&A.', true);
+      chatExhausted = true;
+      setChatEnabled(false);
+      if (chatForm) chatForm.style.display = 'none';
+      return;
+    }
+    if (status === 429) {
+      appendChatMsg('assistant',
+        msg || 'You\u2019ve asked a lot of questions \u2014 take a short break and try again.', true);
+      return;
+    }
+    appendChatMsg('assistant', msg || 'Something went wrong \u2014 try asking again in a moment.', true);
+  }
+
+  if (chatForm) {
+    chatForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      if (chatExhausted || !chatToken) return;
+      var msg = (chatInput.value || '').trim();
+      if (!msg) return;
+      if (msg.length > 2000) {
+        appendChatMsg('assistant', 'Keep questions under 2000 characters.', true);
+        return;
+      }
+      chatInput.value = '';
+      setChatEnabled(false);
+      appendChatMsg('user', msg);
+      var typing = showChatTyping();
+      fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email: chatEmail,
+          token: chatToken,
+          message: msg,
+          history: chatHistory.slice(-10)
+        })
+      })
+        .then(function (r) {
+          return r.json().catch(function () { return {}; }).then(function (d) {
+            return { status: r.status, d: d };
+          });
+        })
+        .then(function (x) {
+          typing.remove();
+          var d = x.d || {};
+          if (x.status === 200) {
+            chatHistory.push({ role: 'user', content: msg });
+            chatHistory.push({ role: 'assistant', content: String(d.answer || '') });
+            if (chatHistory.length > 20) chatHistory = chatHistory.slice(-20);
+            if (d.tier) chatTier = d.tier;
+            appendChatMsg('assistant', d.answer || 'I could not come up with an answer \u2014 try rephrasing.');
+            if (typeof d.questionsLeft === 'number') updateChatQuota(d.questionsLeft);
+            else updateChatQuota(null);
+            if (d.upsell && d.upsell.message) showChatUpsell(d.upsell.message);
+            else if (d.tier === 'free' && d.questionsLeft === 0) showChatUpsell();
+            setChatEnabled(!chatExhausted);
+            return;
+          }
+          handleChatError(x.status, d);
+          setChatEnabled(!chatExhausted);
+        })
+        .catch(function () {
+          typing.remove();
+          appendChatMsg('assistant', 'Could not reach the assistant. Check your connection and try again.', true);
+          setChatEnabled(!chatExhausted);
+        });
+    });
+  }
 
   /* ---------- helpers ---------- */
 
@@ -221,6 +407,10 @@
     unlockPanel.style.display = 'none';
     resultActions.style.display = '';
     moreScansPanel.style.display = '';
+    // Follow-up Q&A: a fresh paid scan carries a chat token; the paid
+    // unlock flow set one from the pending token just before this render.
+    if (data.chatToken) setChatToken(data.chatToken, reportEmail);
+    showChatPanel(chatToken ? 'paid' : null);
     resultsEl.classList.add('visible');
     resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
     saveHistory(data);
@@ -288,6 +478,14 @@
 
     resultActions.style.display = 'none';
     moreScansPanel.style.display = 'none';
+    // The teaser unlock token doubles as the Q&A context token: 2 free
+    // follow-up questions about the free risk score.
+    if (data.unlockToken) {
+      setChatToken(data.unlockToken, reportEmail);
+      showChatPanel('free');
+    } else {
+      hideChatPanel();
+    }
     resultsEl.classList.add('visible');
     resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -317,6 +515,7 @@
     unlockPanel.style.display = '';
     resultActions.style.display = 'none';
     moreScansPanel.style.display = 'none';
+    hideChatPanel(); // no fresh token here — Q&A needs a report
     resultsEl.classList.add('visible');
     resultsEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -377,6 +576,7 @@
   document.getElementById('scanAnotherBtn').addEventListener('click', function () {
     resultsEl.classList.remove('visible');
     clearPendingUnlock();
+    hideChatPanel();
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
 
@@ -469,6 +669,7 @@
     resultsEl.classList.remove('visible');
     clearError();
     clearPendingUnlock();
+    hideChatPanel();
   });
 
   fileInput.addEventListener('change', function () {
@@ -553,6 +754,7 @@
 
   function runScan(payload) {
     setLoading(true);
+    reportEmail = (payload && payload.email) || '';
     var body = { email: payload.email };
     if (payload.text) body.text = payload.text;
     if (payload.fileBase64) {
@@ -631,9 +833,13 @@
     try {
       if (pending && pending.token) {
         var unlockEmail = email || pending.email;
+        reportEmail = unlockEmail;
         var x = await attemptUnlock(unlockEmail, pending.token);
         if (x.ok) {
           spinner.classList.remove('visible');
+          // Keep the token as the Q&A context token before the pending
+          // unlock entry is cleared.
+          setChatToken(pending.token, unlockEmail);
           clearPendingUnlock();
           renderResults(Object.assign({}, x.d, { unlocked: true }));
           showToast('Full report unlocked — no re-scan needed.');
@@ -647,6 +853,7 @@
             var retry = await attemptUnlock(unlockEmail, pending.token);
             if (retry.ok) {
               spinner.classList.remove('visible');
+              setChatToken(pending.token, unlockEmail);
               clearPendingUnlock();
               renderResults(Object.assign({}, retry.d, { unlocked: true }));
               showToast('Full report unlocked — no re-scan needed.');
