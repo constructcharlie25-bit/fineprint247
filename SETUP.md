@@ -1,48 +1,30 @@
 # FinePrint — Launch Checklist
 
 Follow these steps in order. You don't need to be technical — each step says
-exactly where to click. Budget: ~$12 for the domain + ~$5–10 prepaid LLM
-credit to start. Vercel and Stripe accounts are free.
+exactly where to click. Budget: ~$11 for the domain (done) + ~$5–10 prepaid
+LLM credit to start. Vercel and Stripe accounts are free.
 
 > ⚠️ Start with Stripe in **test mode**. Only switch to live keys when you're
-> ready to take real money (Step 9).
+> ready to take real money (Step 8).
+
+**Already done:** domain `fineprint247.com` bought (Cloudflare, $11) and
+pointed at Vercel. The site is live at https://fineprint247.com. The payment
+code is fully wired — no code changes needed, only the accounts/keys below.
 
 ---
 
-## 1. Buy a domain (~$12/year)
-
-1. Go to [Namecheap](https://www.namecheap.com) or [Cloudflare Registrar](https://www.cloudflare.com/products/registrar/).
-2. Search for a name like `fineprintscan.com` (the app is codenamed "FinePrint" — pick whatever you like).
-3. Buy it. You don't need any add-ons (skip the hosting/email upsells).
-4. Keep the registrar tab open — you'll come back in Step 7.
-
-## 2. Create a Vercel account (free)
-
-1. Go to [vercel.com](https://vercel.com) → **Sign Up** → continue with GitHub.
-2. That's it for now. Vercel will host the site for free.
-
-## 3. Get the code onto GitHub and deploy it
-
-1. Create a free [GitHub](https://github.com) account if you don't have one.
-2. Create a new repository (e.g. `fineprint`), and upload the contents of the
-   `fineprint/` folder (or push with git — ask your AI assistant to do this).
-3. In Vercel: **Add New → Project → Import** your `fineprint` repository.
-4. Click **Deploy**. Vercel gives you a live URL like `fineprint.vercel.app`.
-5. Open the URL and try a scan — it runs in **demo mode** (sample contract,
-   canned report) until you add an AI key in Step 5.
-
-## 4. Create a Stripe account (free)
+## 1. Create a Stripe account (free)
 
 1. Go to [stripe.com](https://stripe.com) → **Start now**, complete signup.
 2. Toggle **Test mode** ON (top-right of the dashboard) while setting up.
 
-### 4a. Get your API keys (test mode first)
+### 1a. Get your API keys (test mode first)
 
 1. Dashboard → **Developers → API keys**.
-2. Copy the **Publishable key** (`pk_test_…`) and the **Secret key** (`sk_test_…`).
-   You'll paste these into Vercel later. Never share the secret key.
+2. Copy the **Secret key** (`sk_test_…`). You'll paste it into Vercel later.
+   Never share the secret key.
 
-### 4b. Create the two products
+### 1b. Create the two products
 
 1. Dashboard → **Product catalogue → Create product**.
 2. Product 1:
@@ -54,72 +36,97 @@ credit to start. Vercel and Stripe accounts are free.
    - Price: `$29`, **Recurring → Monthly**
    - Copy the **Price ID** (`price_…`).
 
-### 4c. Set up the webhook
+### 1c. Set up the webhook
+
+This is how FinePrint learns a payment succeeded (no database — scan credits
+are stored on the Stripe Customer's metadata).
 
 1. Dashboard → **Developers → Webhooks → Add endpoint**.
-2. Endpoint URL: `https://YOUR-DOMAIN/api/webhook` (use your Vercel URL for now, e.g. `https://fineprint.vercel.app/api/webhook`).
-3. Select events: `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.deleted`.
+2. Endpoint URL: `https://fineprint247.com/api/webhook`
+3. Select these events:
+   - `checkout.session.completed`
+   - `customer.subscription.created`
+   - `customer.subscription.updated`
+   - `customer.subscription.deleted`
 4. Click **Add endpoint**, then **Reveal** the **Signing secret** (`whsec_…`) and copy it.
 
-## 5. Get an LLM API key (~$5–10 prepaid)
+## 2. Get an LLM API key (~$5–10 prepaid)
 
 The scanner calls an AI model to analyze contracts. Without a key the app
-stays in demo mode.
+stays in demo mode (canned sample report).
 
 1. Go to [platform.openai.com](https://platform.openai.com) → sign up.
 2. **Billing → Add funds**: add **$5–10** prepaid credit (pay-as-you-go; each scan costs a fraction of a cent).
 3. **API keys → Create new secret key**. Copy it — it starts with `sk-` and is shown only once.
-4. (Optional) You can use any OpenAI-compatible provider instead — see `.env.example` for `LLM_API_BASE_URL` / `LLM_MODEL`.
+4. (Optional) You can use any OpenAI-compatible provider instead — see `.env.example` for `OPENAI_BASE_URL` / `OPENAI_MODEL`.
 
-## 6. Add environment variables in Vercel
+## 3. Add environment variables in Vercel
 
-1. Vercel → your project → **Settings → Environment Variables**.
+1. Vercel → your **fineprint247** project → **Settings → Environment Variables**.
 2. Add each of these (select **Production**, **Preview**, and **Development**), then **Save**:
 
    | Variable | Value | Where you got it |
    |---|---|---|
-   | `LLM_API_KEY` | `sk-…` | Step 5 |
-   | `STRIPE_SECRET_KEY` | `sk_test_…` (test for now) | Step 4a |
-   | `STRIPE_PRICE_SINGLE` | `price_…` ($5 one-time) | Step 4b |
-   | `STRIPE_PRICE_MONTHLY` | `price_…` ($29/mo) | Step 4b |
-   | `STRIPE_WEBHOOK_SECRET` | `whsec_…` | Step 4c |
-   | `APP_URL` | `https://your-vercel-url.vercel.app` | Step 3 |
+   | `STRIPE_SECRET_KEY` | `sk_test_…` (test for now) | Step 1a |
+   | `STRIPE_PRICE_SINGLE` | `price_…` ($5 one-time) | Step 1b |
+   | `STRIPE_PRICE_MONTHLY` | `price_…` ($29/mo) | Step 1b |
+   | `STRIPE_WEBHOOK_SECRET` | `whsec_…` | Step 1c |
+   | `OPENAI_API_KEY` | `sk-…` | Step 2 |
+   | `OPENAI_BASE_URL` | _(optional)_ e.g. `https://api.openai.com/v1` | Step 2.4 |
+   | `OPENAI_MODEL` | _(optional)_ defaults to `gpt-4o-mini` | Step 2.4 |
+   | `APP_URL` | `https://fineprint247.com` | fixed |
 
-3. After saving, **redeploy**: Vercel → **Deployments → ⋯ → Redeploy**.
+3. After saving, **redeploy**: Vercel → **Deployments → ⋯ → Redeploy** (env vars only take effect on a fresh deployment).
 
-## 7. Turn on payments in the code (one-time)
+## 4. Test in Stripe test mode
 
-Payments ship stubbed. To activate:
+1. Open https://fineprint247.com/#pricing, enter your email, click **Buy a scan**.
+2. Pay with test card `4242 4242 4242 4242` (any future expiry, any CVC).
+3. You should land back on `/scan.html?paid=1` with a "Payment confirmed" notice.
+4. Run a scan with that email — it should work and consume one credit.
+5. Stripe → **Developers → Webhooks** → your endpoint should show `200` responses.
+6. Scan a real contract — confirm the report says **AI report**, not "Demo report".
 
-1. In the repo, run `npm install stripe` (ask your AI assistant).
-2. Open `api/checkout.js` and `api/webhook.js` and uncomment the blocks marked `TODO` (the instructions are in the comments).
-3. In `api/webhook.js`, implement the credit-granting TODOs — at minimum, decide how you track who paid (e.g. a simple database or even a spreadsheet to start; ask your AI assistant to wire your choice).
-4. Commit, push → Vercel redeploys automatically.
+## 5. Go live checklist
 
-## 8. Connect your domain
-
-1. Vercel → your project → **Settings → Domains → Add** → enter your domain from Step 1.
-2. Vercel shows you DNS records to add. Go back to your registrar (Step 1) → DNS settings:
-   - Add the `A` record (`76.76.21.21`) for `@`, and/or the `CNAME` (`cname.vercel-dns.com`) for `www`, exactly as Vercel instructs.
-3. Wait up to a few hours for DNS to propagate. Vercel will show the domain as active.
-4. Update the `APP_URL` env var to `https://yourdomain.com` and redeploy (Step 6.3).
-
-## 9. Go live checklist
-
-- [ ] Test a full purchase in **Stripe test mode** (use card `4242 4242 4242 4242`).
-- [ ] Confirm the webhook fires: Stripe → Developers → Webhooks → your endpoint shows `200`.
-- [ ] Scan a real contract with your own LLM key; confirm a live (non-demo) report.
-- [ ] In Stripe, toggle **test mode OFF**. Replace the three test values in Vercel env vars with the **live** keys (`pk_live_…`/`sk_live_…`, live price IDs, live webhook secret). Redeploy.
+- [ ] The full test-mode purchase above works end-to-end.
+- [ ] In Stripe, toggle **test mode OFF**. Replace the four test values in Vercel env vars with the **live** values (`sk_live_…`, live price IDs, live webhook secret). Redeploy.
+- [ ] Make a real $5 purchase yourself and confirm the credit lands, then refund it in the Stripe dashboard.
 - [ ] Waitlist: the built-in signup form currently stores emails in a temporary server file, which **does not persist on Vercel**. Before launch, connect a real provider — easiest: [Buttondown](https://buttondown.com) or [ConvertKit](https://convertkit.com) (both free to start) — and replace the file write in `api/waitlist.js` (marked `TODO`). Ask your AI assistant to do this.
 - [ ] Read the disclaimer on the site once more — it says FinePrint is not a law firm and not legal advice. Keep it.
 
-## 10. Ongoing costs (rough)
+## 6. Ongoing costs (rough)
 
 | Item | Cost |
 |---|---|
-| Domain | ~$12/year |
+| Domain | $10.46/year (Cloudflare) |
 | Vercel hosting | $0 (free tier) |
 | Stripe | $0 + ~2.9% + 30¢ per sale (only when you sell) |
 | LLM usage | fractions of a cent per scan (~$5–10 credit lasts months at MVP volume) |
 
-That's the whole launch. The $100 budget covers it many times over.
+## How payments work (for the curious)
+
+- The **Buy** buttons call `POST /api/checkout`, which creates a Stripe
+  Checkout session and redirects the buyer to Stripe's hosted payment page.
+- After payment, Stripe fires `checkout.session.completed` to
+  `/api/webhook`, which writes scan credits (`fp_credits`) or the
+  subscription flag (`fp_sub_active`) onto the Stripe Customer's metadata.
+- `/api/scan` reads that metadata on every scan: active subscribers scan
+  free; everyone else spends one credit per scan (402 when they're out).
+- No database to run, back up, or pay for. If you outgrow this, the
+  entitlement logic is isolated in `lib/entitlements.js` — swap the Stripe
+  metadata calls for database calls there.
+
+## Troubleshooting
+
+- **Checkout returns "not set up yet"** → `STRIPE_SECRET_KEY` isn't set in
+  Vercel (or you forgot to redeploy after adding it).
+- **Payment succeeds but scans say "out of scans"** → the webhook isn't
+  reaching the app: check Stripe → Developers → Webhooks for non-200
+  responses, and confirm `STRIPE_WEBHOOK_SECRET` matches the endpoint's
+  signing secret.
+- **Reports still say "Demo report"** → `OPENAI_API_KEY` isn't set (or no
+  redeploy after adding it).
+- **Local webhook testing** → the webhook needs the raw request body, so the
+  local dev server can't verify signatures. Use the Stripe CLI:
+  `stripe listen --forward-to localhost:3000/api/webhook`.

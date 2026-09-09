@@ -4,6 +4,7 @@
 
   var textEl = document.getElementById('contractText');
   var fileEl = document.getElementById('fileInput');
+  var emailEl = document.getElementById('emailInput');
   var scanBtn = document.getElementById('scanBtn');
   var sampleBtn = document.getElementById('sampleBtn');
   var clearBtn = document.getElementById('clearBtn');
@@ -12,15 +13,38 @@
   var spinner = document.getElementById('spinner');
   var resultsEl = document.getElementById('results');
   var inputPanel = document.getElementById('inputPanel');
+  var paidNotice = document.getElementById('paidNotice');
 
   var lastResult = null;
 
+  /* ---- Returning from Stripe checkout (?paid=1&email=...) ---- */
+  (function handlePaidReturn() {
+    if (!paidNotice) return;
+    var q = new URLSearchParams(window.location.search);
+    if (q.get('paid') === '1') {
+      var em = q.get('email') || '';
+      if (emailEl && em) emailEl.value = em;
+      paidNotice.style.display = 'block';
+      // Clean the URL so a refresh doesn't re-trigger the notice.
+      if (window.history && window.history.replaceState) {
+        window.history.replaceState(null, '', window.location.pathname);
+      }
+    }
+  })();
+
   function showError(msg) {
+    if (!errorBox) { showToast(msg); return; }
     errorBox.textContent = msg;
     errorBox.style.display = 'block';
     errorBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
-  function hideError() { errorBox.style.display = 'none'; }
+  function showHtmlError(html) {
+    if (!errorBox) return;
+    errorBox.innerHTML = html;
+    errorBox.style.display = 'block';
+    errorBox.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  function hideError() { if (errorBox) errorBox.style.display = 'none'; }
 
   function setLoading(on) {
     scanBtn.disabled = on;
@@ -28,6 +52,11 @@
     spinner.style.display = on ? 'block' : 'none';
   }
 
+  /* Scan-form wiring only exists on scan.html — index.html shares this file
+     for the pay buttons, so guard everything scan-specific. */
+  var isScanPage = !!textEl;
+
+  if (isScanPage) {
   textEl.addEventListener('input', function () {
     charCount.textContent = textEl.value.length.toLocaleString() + ' characters';
   });
@@ -49,11 +78,13 @@
   clearBtn.addEventListener('click', function () {
     textEl.value = '';
     fileEl.value = '';
+    if (emailEl) emailEl.value = '';
     textEl.dispatchEvent(new Event('input'));
     resultsEl.style.display = 'none';
     inputPanel.style.display = 'block';
     hideError();
   });
+  }
 
   function readFileAsBase64(file) {
     return new Promise(function (resolve, reject) {
@@ -67,10 +98,14 @@
     });
   }
 
+  if (isScanPage) {
   scanBtn.addEventListener('click', async function () {
     hideError();
     var payload;
     var file = fileEl.files && fileEl.files[0];
+
+    var payload = {};
+    if (emailEl && emailEl.value.trim()) payload.email = emailEl.value.trim();
 
     if (file) {
       if (file.size > 4 * 1024 * 1024) {
@@ -79,13 +114,14 @@
       }
       try {
         var b64 = await readFileAsBase64(file);
-        payload = { fileBase64: b64, filename: file.name };
+        payload.fileBase64 = b64;
+        payload.filename = file.name;
       } catch (e) {
         showError('Could not read that file. Try copy-pasting the text instead.');
         return;
       }
     } else if (textEl.value.trim().length >= 50) {
-      payload = { text: textEl.value };
+      payload.text = textEl.value;
     } else {
       showError('Paste your contract text (or upload a PDF/DOCX) before scanning.');
       return;
@@ -100,7 +136,13 @@
       });
       var data = await resp.json().catch(function () { return {}; });
       if (!resp.ok) {
-        showError(data.message || 'Something went wrong. Please try again.');
+        if (resp.status === 402) {
+          showHtmlError(
+            'You&rsquo;re out of scans. <a href="/#pricing">Buy another scan for $5 or go unlimited for $29/mo</a>.'
+          );
+        } else {
+          showError(data.message || 'Something went wrong. Please try again.');
+        }
         return;
       }
       renderResults(data);
@@ -110,6 +152,7 @@
       setLoading(false);
     }
   });
+  } // end isScanPage: scan button
 
   function bandFor(score) {
     if (score >= 51) return { label: 'High risk', cls: 'high' };
@@ -171,11 +214,13 @@
     resultsEl.scrollIntoView({ behavior: 'smooth' });
   }
 
+  if (isScanPage) {
   document.getElementById('scanAnotherBtn').addEventListener('click', function () {
     resultsEl.style.display = 'none';
     inputPanel.style.display = 'block';
     textEl.value = '';
     fileEl.value = '';
+    if (emailEl) emailEl.value = '';
     textEl.dispatchEvent(new Event('input'));
     window.scrollTo({ top: 0, behavior: 'smooth' });
   });
@@ -221,6 +266,7 @@
     a.click();
     setTimeout(function () { URL.revokeObjectURL(a.href); a.remove(); }, 500);
   });
+  } // end isScanPage: results buttons
 
   function showToast(msg) {
     var t = document.createElement('div');
@@ -232,25 +278,39 @@
     setTimeout(function () { t.remove(); }, 3200);
   }
 
-  /* ---- Pay buttons (stubbed until Stripe is configured) ---- */
+  /* ---- Pay buttons: create a Stripe Checkout session, then redirect ---- */
+  function getPayEmail() {
+    var el = document.getElementById('emailInput') || document.getElementById('pricingEmail');
+    if (el && el.value.trim()) return el.value.trim();
+    var typed = window.prompt('Enter your email for the receipt and scan credits:');
+    return (typed || '').trim();
+  }
+
   document.querySelectorAll('[data-pay]').forEach(function (btn) {
     btn.addEventListener('click', async function () {
       var mode = btn.getAttribute('data-pay');
+      var email = getPayEmail();
+      if (!email) {
+        showToast('Enter your email so we can deliver your scan credits.');
+        return;
+      }
       btn.disabled = true;
       try {
         var resp = await fetch('/api/checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ mode: mode }),
+          body: JSON.stringify({ mode: mode, email: email }),
         });
         var data = await resp.json().catch(function () { return {}; });
         if (data.url) {
           window.location.href = data.url;
-        } else {
+        } else if (resp.status === 501) {
           showToast(data.message || 'Payments are not set up yet — scans are free during the beta.');
+        } else {
+          showToast(data.message || 'Could not start checkout. Please try again.');
         }
       } catch (e) {
-        showToast('Payments are not set up yet — scans are free during the beta.');
+        showToast('Could not reach the server. Check your connection and try again.');
       }
       btn.disabled = false;
     });

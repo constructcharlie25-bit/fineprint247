@@ -1,24 +1,112 @@
 /**
- * POST /api/webhook — Stripe webhook receiver. (STUBBED)
+ * POST /api/webhook — Stripe webhook receiver.
  *
- * TODO (before launch):
- *   1. `npm install stripe`
- *   2. Set STRIPE_WEBHOOK_SECRET (from the Stripe Dashboard webhook endpoint).
- *   3. Point a Stripe webhook at https://YOUR-DOMAIN/api/webhook
- *      listening for: checkout.session.completed,
- *      customer.subscription.created / deleted.
- *   4. Uncomment the verification block below, then implement credit
- *      granting (e.g. write to your database: single-scan credits or an
- *      active-subscription flag keyed by client_reference_id / customer id).
+ * Verified events:
+ *   checkout.session.completed — single purchase  -> +1 scan credit
+ *                                subscription      -> fp_sub_active = "true"
+ *   customer.subscription.created / updated       -> fp_sub_active from status
+ *   customer.subscription.deleted                 -> fp_sub_active = "false"
  *
- * NOTE: this route needs the RAW request body for signature verification.
- * On Vercel, disable the default JSON body parser for this route (see the
- * commented config below) and read the raw buffer instead.
+ * Entitlements are stored on the Stripe Customer's metadata (see
+ * lib/entitlements.js) — no database needed. State is always DERIVED
+ * (read current metadata, write the new value), never blindly appended, so
+ * redelivered events converge instead of double-counting.
+ *
+ * IMPORTANT (Vercel): the JSON body parser is disabled below so Stripe's
+ * signature can be verified against the raw bytes. Do not re-enable it.
+ *
+ * Always returns 200 — Stripe retries anything else, and a thrown error
+ * would spam retries. Problems are logged, never thrown.
  */
 'use strict';
 
-// TODO: uncomment when enabling webhooks on Vercel.
-// module.exports.config = { api: { bodyParser: false } };
+// Disable Vercel's default body parser: we need the RAW body for signatures.
+module.exports.config = { api: { bodyParser: false } };
+
+const { getStripe } = require('../lib/stripe');
+const {
+  addCredits,
+  setSubscriptionActive,
+  normalizeEmail,
+} = require('../lib/entitlements');
+
+/** Read the raw request body as a Buffer. */
+function readRawBody(req) {
+  // Tolerate pre-parsed bodies (local dev servers) when possible.
+  if (typeof req.body === 'string') return Promise.resolve(Buffer.from(req.body, 'utf8'));
+  if (Buffer.isBuffer(req.body)) return Promise.resolve(req.body);
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      chunks.push(c);
+      size += c.length;
+      if (size > 1024 * 1024) {
+        // Webhook payloads are small; abort pathological ones.
+        req.destroy();
+        reject(new Error('body_too_large'));
+      }
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+
+/** Resolve a Stripe customer id from a checkout session or subscription. */
+async function resolveCustomerId(stripe, obj) {
+  if (obj && obj.customer) return String(obj.customer);
+  const email = normalizeEmail((obj && (obj.customer_email || obj.client_reference_id)) || '');
+  if (!email) return null;
+  const list = await stripe.customers.list({ email, limit: 1 });
+  const customer = list && list.data && list.data[0];
+  return customer ? customer.id : null;
+}
+
+async function handleEvent(stripe, event) {
+  const obj = event.data && event.data.object;
+
+  switch (event.type) {
+    case 'checkout.session.completed': {
+      const customerId = await resolveCustomerId(stripe, obj);
+      if (!customerId) {
+        console.error('webhook: checkout.session.completed with no resolvable customer', event.id);
+        return;
+      }
+      if (obj.mode === 'payment') {
+        await addCredits(customerId, 1);
+      } else if (obj.mode === 'subscription') {
+        await setSubscriptionActive(customerId, true);
+      }
+      return;
+    }
+
+    case 'customer.subscription.created':
+    case 'customer.subscription.updated': {
+      const customerId = await resolveCustomerId(stripe, obj);
+      if (!customerId) {
+        console.error('webhook: subscription event with no resolvable customer', event.id);
+        return;
+      }
+      const active = obj.status === 'active' || obj.status === 'trialing';
+      await setSubscriptionActive(customerId, active);
+      return;
+    }
+
+    case 'customer.subscription.deleted': {
+      const customerId = await resolveCustomerId(stripe, obj);
+      if (!customerId) {
+        console.error('webhook: subscription.deleted with no resolvable customer', event.id);
+        return;
+      }
+      await setSubscriptionActive(customerId, false);
+      return;
+    }
+
+    default:
+      // Unhandled event types are fine — acknowledge and ignore.
+      return;
+  }
+}
 
 module.exports = async (req, res) => {
   if (req.method !== 'POST') {
@@ -26,31 +114,34 @@ module.exports = async (req, res) => {
     return res.status(405).json({ error: 'method_not_allowed' });
   }
 
-  if (!process.env.STRIPE_WEBHOOK_SECRET) {
+  const webhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const stripe = getStripe();
+  if (!webhookSecret || !stripe) {
     return res.status(501).json({ error: 'payments_not_configured' });
   }
 
-  // TODO: verify the signature and handle events.
-  /*
-  const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-  const sig = req.headers['stripe-signature'];
-  // const rawBody = await readRawBody(req); // implement raw-body reader
-  // const event = stripe.webhooks.constructEvent(rawBody, sig, process.env.STRIPE_WEBHOOK_SECRET);
-  //
-  // switch (event.type) {
-  //   case 'checkout.session.completed': {
-  //     const session = event.data.object;
-  //     // TODO: if mode === 'payment' -> grant 1 scan credit;
-  //     //       if mode === 'subscription' -> mark subscription active.
-  //     // Key by session.client_reference_id or session.customer.
-  //     break;
-  //   }
-  //   case 'customer.subscription.deleted': {
-  //     // TODO: mark subscription inactive.
-  //     break;
-  //   }
-  // }
-  */
+  let rawBody;
+  try {
+    rawBody = await readRawBody(req);
+  } catch (err) {
+    console.error('webhook: could not read body:', err && err.message);
+    return res.status(400).json({ error: 'bad_body' });
+  }
 
+  const sig = req.headers && req.headers['stripe-signature'];
+  let event;
+  try {
+    event = stripe.webhooks.constructEvent(rawBody, sig, webhookSecret);
+  } catch (err) {
+    console.error('webhook: signature verification failed:', err && err.message);
+    return res.status(400).json({ error: 'bad_signature' });
+  }
+
+  try {
+    await handleEvent(stripe, event);
+  } catch (err) {
+    // Log, but still 200: Stripe would otherwise retry a poison event forever.
+    console.error('webhook: handler error for', event.type, err && err.message);
+  }
   return res.status(200).json({ received: true });
 };

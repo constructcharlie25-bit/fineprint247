@@ -215,3 +215,18 @@ input[type=file] { font-size: .95rem; }
   .nav-links a.hide-sm { display: none; }
   .score-row { gap: 16px; }
 }
+
+/* Email input (scan form + pricing) */
+.email-input {
+  width: 100%; padding: 12px 14px; border: 1px solid var(--line);
+  border-radius: var(--radius); font-size: 1rem; box-sizing: border-box;
+}
+.email-input:focus { outline: 2px solid var(--accent); border-color: var(--accent); }
+.pricing-email { max-width: 340px; margin: 0 auto 18px; display: block; }
+
+/* Payment confirmation notice */
+.paid-notice {
+  display: none; background: #e6f4ea; border: 1px solid #a3d9b1;
+  color: #1a5c2e; padding: 12px 16px; border-radius: var(--radius);
+  margin-bottom: 16px; font-weight: 600;
+}
