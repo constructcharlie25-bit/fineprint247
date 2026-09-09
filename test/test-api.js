@@ -211,6 +211,11 @@ async function t(name, fn) {
           list: async ({ email }) => ({
             data: db[email] ? [{ id: db[email].id, email, metadata: { ...db[email].metadata } }] : [],
           }),
+          create: async ({ email }) => {
+            const id = 'cus_test_' + Math.random().toString(36).slice(2, 10);
+            db[email] = { id, metadata: {} };
+            return { id, email, metadata: {} };
+          },
           retrieve: async (id) => {
             const e = Object.keys(db).find((k) => db[k].id === id);
             if (!e) throw Object.assign(new Error('No such customer'), { statusCode: 404 });
@@ -287,7 +292,7 @@ async function t(name, fn) {
       const p = factory.lastCreate;
       assert.strictEqual(p.mode, 'payment');
       assert.strictEqual(p.line_items[0].price, 'price_single_123');
-      assert.strictEqual(p.customer_email, 'buyer@example.com');
+      assert.ok(/^cus_test_/.test(p.customer), 'session uses a real customer id, not a guest: ' + p.customer);
       assert.strictEqual(p.client_reference_id, 'buyer@example.com');
       assert.ok(p.success_url.includes('/scan.html?paid=1&email=buyer%40example.com'), p.success_url);
       assert.ok(p.cancel_url.endsWith('/#pricing'), p.cancel_url);

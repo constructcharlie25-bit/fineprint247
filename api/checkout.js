@@ -67,11 +67,30 @@ module.exports = async (req, res) => {
 
   const appUrl = (process.env.APP_URL || '').replace(/\/+$/, '') || 'https://fineprint247.com';
 
+  // Use a real Customer object (not Checkout's auto-created guest customer)
+  // so the webhook has a reliable place to store scan credits in metadata.
+  let customerId = null;
+  try {
+    const existing = await stripe.customers.list({ email, limit: 1 });
+    if (existing.data && existing.data.length > 0) {
+      customerId = existing.data[0].id;
+    } else {
+      const created = await stripe.customers.create({ email });
+      customerId = created.id;
+    }
+  } catch (err) {
+    console.error('checkout: customer lookup/create failed:', err && err.message);
+    return res.status(502).json({
+      error: 'checkout_failed',
+      message: 'Could not start checkout. Please try again.',
+    });
+  }
+
   try {
     const session = await stripe.checkout.sessions.create({
       mode: mode === 'subscription' ? 'subscription' : 'payment',
       line_items: [{ price: priceId, quantity: 1 }],
-      customer_email: email,
+      customer: customerId,
       client_reference_id: email,
       success_url: `${appUrl}/scan.html?paid=1&email=${encodeURIComponent(email)}`,
       cancel_url: `${appUrl}/#pricing`,
