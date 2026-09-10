@@ -705,15 +705,21 @@
   textEl.addEventListener('input', updateCount);
   updateCount();
 
-  sampleBtn.addEventListener('click', function () {
+  function loadSampleContract(done) {
     fetch('/api/sample')
       .then(function (r) { return r.json(); })
       .then(function (d) {
         textEl.value = d.text || '';
         updateCount();
-        showToast('Sample contract loaded — hit "' + SCAN_BTN_LABEL + '".');
+        if (done) done();
       })
       .catch(function () { showError('Could not load the sample contract.'); });
+  }
+
+  sampleBtn.addEventListener('click', function () {
+    loadSampleContract(function () {
+      showToast('Sample contract loaded — hit "' + SCAN_BTN_LABEL + '".');
+    });
   });
 
   clearBtn.addEventListener('click', function () {
@@ -955,14 +961,26 @@
     var q = new URLSearchParams(window.location.search);
     var em = q.get('email') || '';
     var paid = q.get('paid') === '1';
+    var sample = q.get('sample') === '1';
     if (em && emailEl && !emailEl.value) emailEl.value = em;
-    if (em || paid) {
+    if (em || paid || sample) {
       q.delete('paid');
       q.delete('email');
+      q.delete('sample');
       var qs = q.toString();
       window.history.replaceState({}, '', window.location.pathname + (qs ? '?' + qs : ''));
     }
     refreshPackVisibility();
+    if (sample) {
+      // Deep link from the homepage hero ("Try a sample scan"): preload the
+      // sample contract. The teaser still needs an email, so focus it —
+      // that's the only step left before the free risk score.
+      loadSampleContract(function () {
+        showToast('Sample contract loaded — enter your email to see its free risk score.');
+        if (textEl && textEl.scrollIntoView) textEl.scrollIntoView({ block: 'center', behavior: 'smooth' });
+        if (emailEl) emailEl.focus({ preventScroll: true });
+      });
+    }
     if (paid) {
       autoUnlockAfterPayment(em);
     } else if (em) {

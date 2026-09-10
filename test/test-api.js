@@ -1916,5 +1916,25 @@ async function t(name, fn) {
     assert.ok(scanHtml.includes('id="sharePanelBody"'), 'missing sharePanelBody');
   });
 
+  await t('index.html: promo video embed next to the sample report', async () => {
+    assert.ok(indexHtml.includes('https://www.youtube-nocookie.com/embed/KkMJ0h-w7sU'), 'missing nocookie video embed');
+    assert.ok(indexHtml.includes('class="video-wrap"'), 'missing responsive video wrapper');
+    assert.ok(indexHtml.includes('loading="lazy"'), 'video iframe should lazy-load');
+    assert.ok(indexHtml.includes('title="FinePrint'), 'video iframe needs a title attribute');
+    assert.ok(!indexHtml.includes('autoplay=1'), 'video must not autoplay');
+  });
+
+  await t('index.html: hero has a one-click sample-scan CTA', async () => {
+    assert.ok(indexHtml.includes('href="/scan.html?sample=1"'), 'missing ?sample=1 deep link');
+    assert.ok(indexHtml.includes('Try a sample scan'), 'missing sample-scan button label');
+  });
+
+  await t('js/scan.js: ?sample=1 preloads the sample contract without duplicating logic', async () => {
+    const scanJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'scan.js'), 'utf8');
+    assert.ok(scanJs.includes("q.get('sample')"), 'missing sample query-param handling');
+    assert.ok(scanJs.includes('loadSampleContract'), 'sample loading should reuse one function');
+    assert.ok((scanJs.match(/fetch\('\/api\/sample'\)/g) || []).length === 1, 'sample fetch must not be duplicated');
+  });
+
   console.log(`\n${passed} tests passed${process.exitCode ? ' (WITH FAILURES)' : ''}.`);
 })();
