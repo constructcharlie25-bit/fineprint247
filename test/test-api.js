@@ -1947,5 +1947,29 @@ async function t(name, fn) {
     }
   });
 
+  await t('articles index lists the agency MSA checklist first', async () => {
+    const articlesIndex = fs.readFileSync(path.join(__dirname, '..', 'articles', 'index.html'), 'utf8');
+    assert.ok(articlesIndex.includes('href="/articles/agency-msa-checklist.html"'), 'index missing new article card');
+    const firstCard = articlesIndex.indexOf('article-card');
+    assert.ok(articlesIndex.indexOf('agency-msa-checklist.html') < articlesIndex.indexOf('how-to-negotiate-freelance-contract.html'), 'new article should lead the list');
+    assert.ok(articlesIndex.includes('freelancers &amp; agencies'), 'index header should cover agencies too');
+  });
+
+  await t('agency MSA checklist article is complete and honest', async () => {
+    const art = fs.readFileSync(path.join(__dirname, '..', 'articles', 'agency-msa-checklist.html'), 'utf8');
+    for (const section of ['Scope', 'IP ownership', 'Payment terms', 'Termination', 'Liability caps', 'Non-solicitation', 'Warranties', 'Insurance']) {
+      assert.ok(art.includes(section), 'missing section: ' + section);
+    }
+    assert.ok(art.includes('Not legal advice'), 'missing disclaimer');
+    assert.ok(art.includes('fineprint247.com'), 'missing FinePrint mention');
+    assert.ok(art.includes('rel="canonical" href="https://www.fineprint247.com/articles/agency-msa-checklist.html"'), 'missing canonical');
+    assert.ok(!/trusted by|reviews|testimonials|\\d+\\s*(agencies|clients) use/i.test(art.replace(/&mdash;/g, '—')), 'no invented social proof allowed');
+  });
+
+  await t('Unlimited plan is framed for agencies', async () => {
+    assert.ok(indexHtml.includes('Best for agencies &amp; consultants'), 'unlimited card missing agency tag');
+    assert.ok(indexHtml.includes('Reviewing client contracts every week?'), 'price anchor missing agency framing');
+  });
+
   console.log(`\n${passed} tests passed${process.exitCode ? ' (WITH FAILURES)' : ''}.`);
 })();
