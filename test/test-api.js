@@ -1936,5 +1936,16 @@ async function t(name, fn) {
     assert.ok((scanJs.match(/fetch\('\/api\/sample'\)/g) || []).length === 1, 'sample fetch must not be duplicated');
   });
 
+  await t('both pages: footer links only to X (thin profiles stay out)', async () => {
+    for (const [name, html] of [['index', indexHtml], ['scan', scanHtml]]) {
+      assert.ok(html.includes('href="https://x.com/fineprint247"'), name + ' footer missing X link');
+      assert.ok(html.includes('target="_blank"'), name + ' footer social link should open in a new tab');
+      assert.ok(html.includes('aria-label="FinePrint on X"'), name + ' footer X link needs an accessible label');
+      assert.ok(!html.includes('reddit.com'), name + ' footer must not link Reddit yet');
+      assert.ok(!html.includes('indiehackers.com'), name + ' footer must not link Indie Hackers yet');
+      assert.ok(!html.includes('producthunt.com'), name + ' footer must not link Product Hunt yet');
+    }
+  });
+
   console.log(`\n${passed} tests passed${process.exitCode ? ' (WITH FAILURES)' : ''}.`);
 })();

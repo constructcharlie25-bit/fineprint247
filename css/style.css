@@ -219,6 +219,9 @@ footer { border-top: 1px solid var(--line); padding: 28px 0; color: var(--muted)
 footer .wrap { display: flex; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
 footer a { color: var(--muted); }
 footer a:hover { color: var(--ink); }
+footer .social a { display: inline-flex; align-items: center; }
+footer .social a:hover { color: var(--accent-bright); }
+footer .social svg { display: block; }
 
 /* Scanner page */
 .scan-layout { padding: 36px 0 64px; }
