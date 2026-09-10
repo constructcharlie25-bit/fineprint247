@@ -667,6 +667,11 @@
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-pay]');
     if (!btn) return;
+    // Pages without the scan email field (e.g. the homepage) cannot start
+    // checkout directly — route to the scan page, where the email + teaser
+    // + unlock flow lives, instead of throwing on a missing element and
+    // leaving the button dead.
+    if (!emailEl) { window.location.href = '/scan.html'; return; }
     var mode = btn.getAttribute('data-pay');
     var email = getPayEmail();
     if (!isValidEmail(email)) {

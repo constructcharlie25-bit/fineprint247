@@ -2061,6 +2061,15 @@ async function t(name, fn) {
     assert.ok((scanJs.match(/fetch\('\/api\/sample'\)/g) || []).length === 1, 'sample fetch must not be duplicated');
   });
 
+  await t('js/scan.js: data-pay buttons stay alive on pages without the email field', async () => {
+    const scanJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'scan.js'), 'utf8');
+    // The homepage has pricing buttons but no #emailInput; the delegated
+    // [data-pay] handler used to throw on emailEl.value and leave the
+    // buttons dead. It must guard the missing field and route onward.
+    assert.ok(scanJs.includes('if (!emailEl)'), 'data-pay handler must guard a missing email field');
+    assert.ok(scanJs.includes("window.location.href = '/scan.html'"), 'missing-email pages should route to the scan page');
+  });
+
   await t('both pages: footer links only to X (thin profiles stay out)', async () => {
     for (const [name, html] of [['index', indexHtml], ['scan', scanHtml]]) {
       assert.ok(html.includes('href="https://x.com/fineprint247"'), name + ' footer missing X link');
