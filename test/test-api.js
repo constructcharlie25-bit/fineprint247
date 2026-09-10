@@ -2065,9 +2065,23 @@ async function t(name, fn) {
     const scanJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'scan.js'), 'utf8');
     // The homepage has pricing buttons but no #emailInput; the delegated
     // [data-pay] handler used to throw on emailEl.value and leave the
-    // buttons dead. It must guard the missing field and route onward.
+    // buttons dead. It must guard the missing field and route onward,
+    // carrying the chosen plan so the scan page can honor the buyer's intent.
     assert.ok(scanJs.includes('if (!emailEl)'), 'data-pay handler must guard a missing email field');
-    assert.ok(scanJs.includes("window.location.href = '/scan.html'"), 'missing-email pages should route to the scan page');
+    assert.ok(scanJs.includes("window.location.href = '/scan.html?plan='"), 'missing-email pages should route to the scan page with the chosen plan');
+  });
+
+  await t('scan page: ?plan= deep-link shows a matching purchase card', async () => {
+    const scanJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'scan.js'), 'utf8');
+    // "Go unlimited" must not dump subscription intent onto a bare scan form.
+    assert.ok(scanHtml.includes('id="planBanner"'), 'scan.html missing #planBanner');
+    assert.ok(scanHtml.includes('id="planEmail"'), 'scan.html missing #planEmail');
+    assert.ok(scanHtml.includes('id="planCta"'), 'scan.html missing #planCta');
+    assert.ok(scanJs.includes("get('plan')"), 'scan.js must read the ?plan= param');
+    assert.ok(scanJs.includes('planBanner'), 'scan.js must populate the plan banner');
+    assert.ok(scanJs.includes('postCheckout(plan, email)'), 'plan CTA must reuse the checkout POST');
+    // The banner must only render for known plans.
+    assert.ok(scanJs.includes('subscription:'), 'plan copy must cover the subscription plan');
   });
 
   await t('js/scan.js: scan-page init is skipped on pages without the contract form', async () => {

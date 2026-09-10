@@ -353,15 +353,23 @@
     } catch (e) { /* leave as-is */ }
   }
 
+  function postCheckout(mode, email) {
+    return fetch('/api/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: mode, email: email })
+    }).then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); });
+  }
+
   document.addEventListener('click', function (e) {
     var btn = e.target.closest('[data-pay]');
     if (!btn) return;
+    var mode = btn.getAttribute('data-pay') || 'single';
     // Pages without the scan email field (e.g. the homepage) cannot start
-    // checkout directly — route to the scan page, where the email + teaser
-    // + unlock flow lives, instead of throwing on a missing element and
+    // checkout directly — carry the chosen plan to the scan page, which shows
+    // a matching purchase card, instead of throwing on a missing element and
     // leaving the button dead.
-    if (!emailEl) { window.location.href = '/scan.html'; return; }
-    var mode = btn.getAttribute('data-pay');
+    if (!emailEl) { window.location.href = '/scan.html?plan=' + encodeURIComponent(mode); return; }
     var email = getPayEmail();
     if (!isValidEmail(email)) {
       showError('Enter your email first — it is how we deliver your paid scans.');
@@ -369,12 +377,7 @@
       return;
     }
     btn.disabled = true;
-    fetch('/api/checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: mode, email: email })
-    })
-      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+    postCheckout(mode, email)
       .then(function (x) {
         btn.disabled = false;
         if (x.ok && x.d.url) {
@@ -398,6 +401,70 @@
   // the scan page). The global handlers above (data-pay buttons, chat,
   // share, toasts) stay live.
   if (!textEl) return;
+
+  /* ---------- plan deep-link (?plan=single|pack|subscription) ---------- */
+  // Homepage pricing buttons land here with ?plan=<mode>. Show a matching
+  // purchase card at the top so the buyer's intent survives the hop —
+  // especially "Go unlimited", which should offer subscription checkout
+  // directly instead of burying it under the scan form.
+  (function handlePlanDeepLink() {
+    var banner = document.getElementById('planBanner');
+    if (!banner) return;
+    var plan = null;
+    try { plan = new URLSearchParams(window.location.search).get('plan'); } catch (e) { plan = null; }
+    var copy = {
+      single: {
+        title: 'Single scan — $5 one-time',
+        sub: 'One full contract risk report. Enter your email to check out, then paste your contract below to scan.',
+        cta: 'Continue — $5',
+        fine: 'Secure checkout with Stripe. Covered by the useful-issue guarantee.'
+      },
+      pack: {
+        title: '5-scan pack — $20 one-time',
+        sub: 'Five full contract risk reports, ready when you are. Enter your email to check out.',
+        cta: 'Continue — $20',
+        fine: 'Secure checkout with Stripe. Covered by the useful-issue guarantee.'
+      },
+      subscription: {
+        title: 'Unlimited — $29/month',
+        sub: 'Unlimited contract scans. Cancel anytime. Enter your email to start your subscription — no contract needed.',
+        cta: 'Start Unlimited',
+        fine: 'Secure checkout with Stripe. Prefer to try it first? Run a free scan below.'
+      }
+    }[plan];
+    if (!copy) return;
+    document.getElementById('planTitle').textContent = copy.title;
+    document.getElementById('planSub').textContent = copy.sub;
+    document.getElementById('planFine').textContent = copy.fine;
+    var ctaBtn = document.getElementById('planCta');
+    var planEmail = document.getElementById('planEmail');
+    ctaBtn.textContent = copy.cta;
+    banner.style.display = '';
+    ctaBtn.addEventListener('click', function () {
+      var email = (planEmail.value || '').trim().toLowerCase();
+      if (!isValidEmail(email)) {
+        showError('Enter a valid email to continue.');
+        planEmail.focus();
+        return;
+      }
+      ctaBtn.disabled = true;
+      postCheckout(plan, email)
+        .then(function (x) {
+          ctaBtn.disabled = false;
+          if (x.ok && x.d.url) {
+            window.location.href = x.d.url;
+          } else {
+            showError((x.d && x.d.message) || 'Checkout is not available right now. Please try again.');
+          }
+        })
+        .catch(function () {
+          ctaBtn.disabled = false;
+          showError('Could not reach checkout. Please try again.');
+        });
+    });
+    if (planEmail && planEmail.scrollIntoView) banner.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    try { window.history.replaceState({}, '', window.location.pathname); } catch (e) { /* keep the param */ }
+  })();
 
   /* ---------- findings ---------- */
 

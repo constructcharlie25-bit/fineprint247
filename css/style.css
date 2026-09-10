@@ -248,6 +248,15 @@ input[type=file]::file-selector-button {
 }
 input[type=file]::file-selector-button:hover { border-color: var(--accent); }
 .file-hint { font-size: .85rem; color: var(--muted); margin: 6px 0 0; }
+/* Plan deep-link banner (?plan= from homepage pricing) */
+.plan-banner { border-color: var(--accent); box-shadow: 0 10px 32px rgba(47,123,255,.25); }
+.plan-banner h3 { font-size: 1.25rem; }
+.plan-cta-row { display: flex; gap: 10px; margin: 0 0 10px; }
+.plan-cta-row .email-input { flex: 1; margin: 0; }
+.plan-cta-row .btn { white-space: nowrap; }
+@media (max-width: 560px) {
+  .plan-cta-row { flex-direction: column; }
+}
 .scan-actions { display: flex; gap: 10px; margin-top: 18px; flex-wrap: wrap; }
 .char-count { font-size: .85rem; color: var(--muted); text-align: right; margin-top: 6px; }
 .error-box {
