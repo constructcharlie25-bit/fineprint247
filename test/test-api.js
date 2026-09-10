@@ -1859,6 +1859,102 @@ async function t(name, fn) {
     assert.strictEqual(res.body.demoMode, true);
   });
 
+  console.log('contract-review quality bar');
+  await t('quality bar: prompt uses a two-pass review method (deal, then exits)', async () => {
+    const { buildSystemPrompt } = require('../lib/analysis');
+    const p = buildSystemPrompt();
+    assert.ok(p.includes('REVIEW METHOD'), 'missing REVIEW METHOD section');
+    assert.ok(p.includes('Pass 1') && p.includes('Pass 2'), 'missing two-pass structure');
+    assert.ok(/asymmetr/i.test(p), 'prompt should check asymmetry explicitly');
+  });
+
+  await t('quality bar: prompt has a calibrated severity rubric with examples', async () => {
+    const { buildSystemPrompt } = require('../lib/analysis');
+    const p = buildSystemPrompt();
+    assert.ok(p.includes('SEVERITY RUBRIC'), 'missing SEVERITY RUBRIC section');
+    assert.ok(p.includes('uncapped') && p.toLowerCase().includes('indemnity'), 'HIGH examples missing');
+    assert.ok(p.toLowerCase().includes('never high') || p.includes('MEDIUM, never high'), 'calibration anchors missing');
+  });
+
+  await t('quality bar: prompt requires section citations and verbatim quotes', async () => {
+    const { buildSystemPrompt } = require('../lib/analysis');
+    const p = buildSystemPrompt();
+    assert.ok(p.includes('"section"'), 'flag schema missing section field');
+    assert.ok(p.toLowerCase().includes('verbatim'), 'verbatim quote rule missing');
+    assert.ok(p.includes('unheaded clause'), 'missing fallback for unnumbered contracts');
+  });
+
+  await t('quality bar: prompt detects missing protections, not just present dangers', async () => {
+    const { buildSystemPrompt } = require('../lib/analysis');
+    const p = buildSystemPrompt();
+    assert.ok(/MISSING/i.test(p) && p.toLowerCase().includes('absent'), 'missing-protection instruction absent');
+    assert.ok(p.includes('"redline"'), 'flag schema missing redline field');
+  });
+
+  await t('quality bar: prompt has jurisdiction caveat for non-competes', async () => {
+    const { buildSystemPrompt } = require('../lib/analysis');
+    const p = buildSystemPrompt();
+    assert.ok(p.toLowerCase().includes('california') || p.toLowerCase().includes('varies by state'), 'jurisdiction caveat missing');
+    assert.ok(p.toLowerCase().includes('never declare'), 'must not declare enforceability');
+  });
+
+  await t('quality bar: prompt labels uncertain findings instead of overstating', async () => {
+    const { buildSystemPrompt } = require('../lib/analysis');
+    const p = buildSystemPrompt();
+    assert.ok(p.toLowerCase().includes('genuinely ambiguous') || p.toLowerCase().includes("lawyer's read"), 'uncertainty labeling missing');
+  });
+
+  await t('quality bar: score rubric is auditable against flags', async () => {
+    const { buildSystemPrompt } = require('../lib/analysis');
+    const p = buildSystemPrompt();
+    assert.ok(p.toLowerCase().includes('auditable'), 'score auditability guidance missing');
+  });
+
+  await t('quality bar: expanded type checklists carry research-backed items', async () => {
+    const { buildSystemPrompt, CONTRACT_TYPE_FOCUS } = require('../lib/analysis');
+    assert.ok(CONTRACT_TYPE_FOCUS.nda.toLowerCase().includes('return-or-destroy'), 'NDA focus missing return-or-destroy');
+    assert.ok(CONTRACT_TYPE_FOCUS.sow.toLowerCase().includes('deemed-acceptance'), 'SOW focus missing deemed-acceptance');
+    assert.ok(CONTRACT_TYPE_FOCUS.ica.toLowerCase().includes('duty to defend'), 'ICA focus missing duty-to-defend');
+    assert.ok(CONTRACT_TYPE_FOCUS.msa.toLowerCase().includes('in-flight'), 'MSA focus missing in-flight SOWs');
+    for (const type of Object.keys(CONTRACT_TYPE_FOCUS)) {
+      const p = buildSystemPrompt(type);
+      assert.ok(!/you are a lawyer/i.test(p), type + ': must not present as a lawyer');
+    }
+  });
+
+  await t('quality bar: validateAnalysis keeps section/redline and allows missing-protection flags', async () => {
+    const { validateAnalysis } = require('../lib/analysis');
+    const out = validateAnalysis({
+      score: 60,
+      summary: 'x',
+      flags: [
+        { title: 'present danger', section: 'Section 7', clause: 'real text', risk: 'high', explanation: 'e', suggestion: 's', redline: '"fix it like this"' },
+        { title: 'missing protection', section: 'not present', clause: '', risk: 'medium', explanation: 'No kill fee anywhere in the agreement.', suggestion: 'Ask for one.', redline: '"50% kill fee"' },
+        { title: 'empty junk', section: '', clause: '', risk: 'low', explanation: 'e', suggestion: 's' },
+      ],
+    });
+    assert.strictEqual(out.flags.length, 2, 'missing-protection flag dropped, junk flag should drop');
+    assert.strictEqual(out.flags[0].section, 'Section 7');
+    assert.strictEqual(out.flags[0].redline, '"fix it like this"');
+    assert.strictEqual(out.flags[1].clause, '');
+    assert.strictEqual(out.flags[1].section, 'not present');
+  });
+
+  await t('quality bar: toClientFlag passes section/redline through', async () => {
+    const { toClientFlag } = require('../lib/analysis');
+    const f = toClientFlag({ risk: 'high', title: 't', section: 'Section 2', clause: 'c', explanation: 'e', suggestion: 's', redline: '"r"' });
+    assert.strictEqual(f.section, 'Section 2');
+    assert.strictEqual(f.redline, '"r"');
+    assert.strictEqual(f.severity, 'high');
+  });
+
+  await t('quality bar: DEMO_ANALYSIS exemplifies the bar (sections + redlines)', async () => {
+    for (const f of DEMO_ANALYSIS.flags) {
+      assert.ok(f.section && /^Section \d+$/.test(f.section), 'demo flag missing section: ' + f.title);
+      assert.ok(f.redline && f.redline.length > 20, 'demo flag missing redline: ' + f.title);
+    }
+  });
+
   console.log('marketing markup (Track B)');
   const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const scanHtml = fs.readFileSync(path.join(__dirname, '..', 'scan.html'), 'utf8');
