@@ -1955,9 +1955,38 @@ async function t(name, fn) {
     }
   });
 
+  console.log('methodology section (quality story)');
+  await t('quality bar: prompt requires a coverage check before finalizing', async () => {
+    const { buildSystemPrompt } = require('../lib/analysis');
+    const p = buildSystemPrompt();
+    assert.ok(p.includes('COVERAGE CHECK'), 'missing COVERAGE CHECK instruction');
+  });
+
   console.log('marketing markup (Track B)');
   const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const scanHtml = fs.readFileSync(path.join(__dirname, '..', 'scan.html'), 'utf8');
+
+  await t('index.html: methodology section explains the review honestly', async () => {
+    assert.ok(indexHtml.includes('id="method"'), 'missing #method section');
+    assert.ok(indexHtml.includes('Two-pass review'), 'two-pass method not described');
+    assert.ok(indexHtml.toLowerCase().includes('checklist'), 'checklist-driven review not described');
+    assert.ok(indexHtml.toLowerCase().includes('word-for-word') || indexHtml.toLowerCase().includes('verbatim'), 'grounding not described');
+    assert.ok(indexHtml.toLowerCase().includes('not legal advice'), 'disclaimer missing from methodology section');
+  });
+
+  await t('index.html: methodology makes no lawyer-equivalence claims', async () => {
+    const methodSection = indexHtml.slice(indexHtml.indexOf('id="method"'), indexHtml.indexOf('id="flag"'));
+    assert.ok(!/better than (a )?lawyer/i.test(methodSection), 'must not claim to beat lawyers');
+    assert.ok(!/lawyer-quality/i.test(methodSection), 'must not claim lawyer quality');
+    assert.ok(!/replace.*(lawyer|attorney)/i.test(methodSection), 'must not claim to replace lawyers');
+    assert.ok(!/\d+% accur/i.test(methodSection), 'must not invent accuracy metrics');
+  });
+
+  await t('index.html: comparison table covers the chat-differentiators', async () => {
+    assert.ok(indexHtml.includes('section citations') || indexHtml.includes('section number'), 'table missing citation row');
+    assert.ok(indexHtml.toLowerCase().includes('redline language'), 'table missing redline row');
+    assert.ok(indexHtml.toLowerCase().includes('checklist coverage'), 'table missing coverage row');
+  });
 
   await t('index.html: Open Graph + Twitter Card tags present', async () => {
     for (const tag of ['og:title', 'og:description', 'og:type', 'og:url', 'twitter:card', 'twitter:title', 'twitter:description']) {
