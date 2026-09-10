@@ -704,6 +704,13 @@
 
   /* ---------- scanning ---------- */
 
+  // scan.js loads on every page, but everything below is the scan-page app.
+  // On pages without the contract form (e.g. the homepage) the element
+  // lookups above are all null — stop here instead of throwing halfway
+  // through init. The global handlers above (data-pay buttons, toasts)
+  // stay live.
+  if (!textEl) return;
+
   function updateCount() {
     charCount.textContent = (textEl.value || '').length + ' characters';
   }

@@ -2070,6 +2070,19 @@ async function t(name, fn) {
     assert.ok(scanJs.includes("window.location.href = '/scan.html'"), 'missing-email pages should route to the scan page');
   });
 
+  await t('js/scan.js: scan-page init is skipped on pages without the contract form', async () => {
+    const scanJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'scan.js'), 'utf8');
+    // scan.js loads on index.html too, where every getElementById is null.
+    // The page guard must sit between the global handlers and scan init —
+    // otherwise the script throws on load and half the page's JS never runs.
+    const guardAt = scanJs.indexOf('if (!textEl) return;');
+    const payHandlerAt = scanJs.indexOf("closest('[data-pay]')");
+    const scanInitAt = scanJs.indexOf("textEl.addEventListener('input'");
+    assert.ok(guardAt !== -1, 'missing page guard for pages without #contractText');
+    assert.ok(guardAt > payHandlerAt, 'page guard must come after the global data-pay handler');
+    assert.ok(guardAt < scanInitAt, 'page guard must come before scan-page init');
+  });
+
   await t('both pages: footer links only to X (thin profiles stay out)', async () => {
     for (const [name, html] of [['index', indexHtml], ['scan', scanHtml]]) {
       assert.ok(html.includes('href="https://x.com/fineprint247"'), name + ' footer missing X link');
