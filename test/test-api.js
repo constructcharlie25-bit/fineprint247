@@ -1966,6 +1966,34 @@ async function t(name, fn) {
     assert.ok(!/trusted by|reviews|testimonials|\\d+\\s*(agencies|clients) use/i.test(art.replace(/&mdash;/g, '—')), 'no invented social proof allowed');
   });
 
+  await t('consulting retainer agreement article is complete and honest', async () => {
+    const art = fs.readFileSync(path.join(__dirname, '..', 'articles', 'consulting-retainer-agreement-red-flags.html'), 'utf8');
+    for (const section of ['Pay-for-access', 'Unused hours', 'Scope drift', 'Payment mechanics', 'Auto-renewal', 'Exclusivity', 'Termination']) {
+      assert.ok(art.includes(section), 'missing section: ' + section);
+    }
+    assert.ok(art.includes('Not legal advice'), 'missing disclaimer');
+    assert.ok(art.includes('fineprint247.com'), 'missing FinePrint mention');
+    assert.ok(art.includes('rel="canonical" href="https://www.fineprint247.com/articles/consulting-retainer-agreement-red-flags.html"'), 'missing canonical');
+    assert.ok(art.includes('datePublished'), 'missing Article schema date');
+    assert.ok(art.includes('"2026-10-14"'), 'article should be dated 2026-10-14');
+    assert.ok(art.includes('"@type": "FAQPage"'), 'missing FAQPage schema');
+    for (const faq of ['Do unused retainer hours roll over', 'non-compete', 'pay-for-access']) {
+      assert.ok(art.toLowerCase().includes(faq.toLowerCase()), 'missing FAQ topic: ' + faq);
+    }
+    assert.ok(art.includes('/_vercel/insights/script.js'), 'missing Vercel Insights script');
+    for (const link of ['/articles/agency-msa-checklist.html', '/articles/statement-of-work-pitfalls.html', '/articles/how-to-negotiate-freelance-contract.html']) {
+      assert.ok(art.includes('href="' + link + '"'), 'missing internal link to ' + link);
+    }
+    assert.ok(!/trusted by|reviews|testimonials|\\d+\\s*(agencies|clients) use/i.test(art.replace(/&mdash;/g, '—')), 'no invented social proof allowed');
+  });
+
+  await t('articles index lists the retainer article first', async () => {
+    const articlesIndex = fs.readFileSync(path.join(__dirname, '..', 'articles', 'index.html'), 'utf8');
+    assert.ok(articlesIndex.includes('href="/articles/consulting-retainer-agreement-red-flags.html"'), 'index missing new article card');
+    assert.ok(articlesIndex.indexOf('consulting-retainer-agreement-red-flags.html') < articlesIndex.indexOf('agency-msa-checklist.html'), 'new article should lead the list');
+    assert.ok(articlesIndex.includes('October 14, 2026'), 'index card should show October 14, 2026');
+  });
+
   await t('Unlimited plan is framed for agencies', async () => {
     assert.ok(indexHtml.includes('Best for agencies &amp; consultants'), 'unlimited card missing agency tag');
     assert.ok(indexHtml.includes('Reviewing client contracts every week?'), 'price anchor missing agency framing');
