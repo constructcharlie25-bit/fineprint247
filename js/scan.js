@@ -311,9 +311,9 @@
   /* ---------- score dial ---------- */
 
   function scoreColor(score) {
-    if (score >= 70) return '#c0392b';
-    if (score >= 40) return '#d48806';
-    return '#1e7e34';
+    if (score >= 70) return '#f43f5e';
+    if (score >= 40) return '#f59e0b';
+    return '#3b82f6';
   }
 
   function renderDial(score) {
@@ -322,12 +322,12 @@
     var color = scoreColor(s);
     scoreDial.innerHTML =
       '<svg viewBox="0 0 120 120" role="img" aria-label="Risk score ' + s + ' out of 100">' +
-      '<circle cx="60" cy="60" r="54" fill="none" stroke="#e8e4da" stroke-width="12"/>' +
+      '<circle cx="60" cy="60" r="54" fill="none" stroke="#1e2650" stroke-width="12"/>' +
       '<circle cx="60" cy="60" r="54" fill="none" stroke="' + color + '" stroke-width="12" ' +
       'stroke-linecap="round" stroke-dasharray="' + (c * s / 100).toFixed(1) + ' ' + c.toFixed(1) + '" ' +
       'transform="rotate(-90 60 60)"/>' +
       '<text x="60" y="68" text-anchor="middle" font-size="30" font-weight="800" fill="' + color + '">' + s + '</text>' +
-      '<text x="60" y="86" text-anchor="middle" font-size="11" fill="#6b6257">/ 100</text>' +
+      '<text x="60" y="86" text-anchor="middle" font-size="11" fill="#8b9bb8">/ 100</text>' +
       '</svg>';
     bandLabel.textContent =
       s >= 70 ? 'High risk — read carefully before you sign' :
