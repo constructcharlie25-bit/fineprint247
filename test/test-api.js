@@ -1971,5 +1971,26 @@ async function t(name, fn) {
     assert.ok(indexHtml.includes('Reviewing client contracts every week?'), 'price anchor missing agency framing');
   });
 
+  await t('all pages: Vercel Web Analytics snippet present (traffic visibility)', async () => {
+    const pages = [
+      ['index.html', indexHtml],
+      ['scan.html', scanHtml],
+      ['articles/index.html', fs.readFileSync(path.join(__dirname, '..', 'articles', 'index.html'), 'utf8')],
+    ];
+    const articlesDir = path.join(__dirname, '..', 'articles');
+    for (const f of fs.readdirSync(articlesDir)) {
+      if (f.endsWith('.html') && f !== 'index.html') {
+        pages.push(['articles/' + f, fs.readFileSync(path.join(articlesDir, f), 'utf8')]);
+      }
+    }
+    assert.ok(pages.length >= 8, 'expected at least 8 pages, found ' + pages.length);
+    for (const [name, html] of pages) {
+      assert.ok(html.includes('/_vercel/insights/script.js'), name + ' missing Vercel Insights script');
+      assert.ok(html.includes('window.va = window.va'), name + ' missing va queue stub');
+      assert.strictEqual((html.match(/\/_vercel\/insights\/script\.js/g) || []).length, 1, name + ' snippet duplicated');
+      assert.ok(!/google-analytics|googletagmanager|ga\(/i.test(html), name + ' must not include other trackers');
+    }
+  });
+
   console.log(`\n${passed} tests passed${process.exitCode ? ' (WITH FAILURES)' : ''}.`);
 })();
