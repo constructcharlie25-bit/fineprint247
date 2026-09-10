@@ -336,6 +336,69 @@
     bandLabel.style.color = color;
   }
 
+  /* ---------- payments ---------- */
+
+  function getPayEmail() {
+    return (emailEl.value || '').trim().toLowerCase();
+  }
+
+  async function refreshPackVisibility() {
+    try {
+      var r = await fetch('/api/tiers');
+      var d = await r.json();
+      var show = !!(d && d.tiers && d.tiers.pack);
+      document.querySelectorAll('.pack-tier').forEach(function (el) {
+        el.style.display = show ? '' : 'none';
+      });
+    } catch (e) { /* leave as-is */ }
+  }
+
+  document.addEventListener('click', function (e) {
+    var btn = e.target.closest('[data-pay]');
+    if (!btn) return;
+    // Pages without the scan email field (e.g. the homepage) cannot start
+    // checkout directly — route to the scan page, where the email + teaser
+    // + unlock flow lives, instead of throwing on a missing element and
+    // leaving the button dead.
+    if (!emailEl) { window.location.href = '/scan.html'; return; }
+    var mode = btn.getAttribute('data-pay');
+    var email = getPayEmail();
+    if (!isValidEmail(email)) {
+      showError('Enter your email first — it is how we deliver your paid scans.');
+      emailEl.focus();
+      return;
+    }
+    btn.disabled = true;
+    fetch('/api/checkout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ mode: mode, email: email })
+    })
+      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
+      .then(function (x) {
+        btn.disabled = false;
+        if (x.ok && x.d.url) {
+          // The pending unlock token stays in sessionStorage across the
+          // Stripe redirect; /api/unlock redeems it on return.
+          window.location.href = x.d.url;
+        } else {
+          showError((x.d && x.d.message) || 'Checkout is not available right now. Please try again.');
+        }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        showError('Could not reach checkout. Please try again.');
+      });
+  });
+
+  // scan.js loads on every page, but everything below is the scan-page app.
+  // On pages without the contract form (e.g. the homepage) the element
+  // lookups above are all null — stop here instead of throwing halfway
+  // through init (sevFilter, report buttons, and friends only exist on
+  // the scan page). The global handlers above (data-pay buttons, chat,
+  // share, toasts) stay live.
+  if (!textEl) return;
+
   /* ---------- findings ---------- */
 
   function flagHtml(f, idx) {
@@ -647,73 +710,6 @@
     );
   });
 
-  /* ---------- payments ---------- */
-
-  function getPayEmail() {
-    return (emailEl.value || '').trim().toLowerCase();
-  }
-
-  async function refreshPackVisibility() {
-    try {
-      var r = await fetch('/api/tiers');
-      var d = await r.json();
-      var show = !!(d && d.tiers && d.tiers.pack);
-      document.querySelectorAll('.pack-tier').forEach(function (el) {
-        el.style.display = show ? '' : 'none';
-      });
-    } catch (e) { /* leave as-is */ }
-  }
-
-  document.addEventListener('click', function (e) {
-    var btn = e.target.closest('[data-pay]');
-    if (!btn) return;
-    // Pages without the scan email field (e.g. the homepage) cannot start
-    // checkout directly — route to the scan page, where the email + teaser
-    // + unlock flow lives, instead of throwing on a missing element and
-    // leaving the button dead.
-    if (!emailEl) { window.location.href = '/scan.html'; return; }
-    var mode = btn.getAttribute('data-pay');
-    var email = getPayEmail();
-    if (!isValidEmail(email)) {
-      showError('Enter your email first — it is how we deliver your paid scans.');
-      emailEl.focus();
-      return;
-    }
-    btn.disabled = true;
-    fetch('/api/checkout', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode: mode, email: email })
-    })
-      .then(function (r) { return r.json().then(function (d) { return { ok: r.ok, d: d }; }); })
-      .then(function (x) {
-        btn.disabled = false;
-        if (x.ok && x.d.url) {
-          // The pending unlock token stays in sessionStorage across the
-          // Stripe redirect; /api/unlock redeems it on return.
-          window.location.href = x.d.url;
-        } else {
-          showError((x.d && x.d.message) || 'Checkout is not available right now. Please try again.');
-        }
-      })
-      .catch(function () {
-        btn.disabled = false;
-        showError('Could not reach checkout. Please try again.');
-      });
-  });
-
-  /* ---------- scanning ---------- */
-
-  // scan.js loads on every page, but everything below is the scan-page app.
-  // On pages without the contract form (e.g. the homepage) the element
-  // lookups above are all null — stop here instead of throwing halfway
-  // through init. The global handlers above (data-pay buttons, toasts)
-  // stay live.
-  if (!textEl) return;
-
-  function updateCount() {
-    charCount.textContent = (textEl.value || '').length + ' characters';
-  }
   textEl.addEventListener('input', updateCount);
   updateCount();
 
