@@ -2097,6 +2097,33 @@ async function t(name, fn) {
     assert.ok(guardAt < scanInitAt, 'page guard must come before scan-page init');
   });
 
+  await t('js/scan.js: updateCount is defined (a missing def kills the whole scan page)', async () => {
+    // Regression: the 4c2c711 page-guard refactor deleted the updateCount
+    // definition while keeping its 6 call sites — line 780 then threw a
+    // ReferenceError on every scan-page load, leaving the scan button dead.
+    const scanJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'scan.js'), 'utf8');
+    const defAt = scanJs.indexOf('function updateCount()');
+    const firstUseAt = scanJs.indexOf("textEl.addEventListener('input', updateCount)");
+    assert.ok(defAt !== -1, 'scan.js must define updateCount()');
+    assert.ok(defAt < firstUseAt, 'updateCount() must be defined before its first use');
+  });
+
+  await t('index.html: hero has an inline contract-paste widget', async () => {
+    // The homepage must let visitors paste their contract without leaving
+    // the page — every extra navigation step bleeds conversions.
+    const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
+    assert.ok(indexHtml.includes('id="heroScanForm"'), 'index.html missing #heroScanForm');
+    assert.ok(indexHtml.includes('id="heroContract"'), 'index.html missing #heroContract textarea');
+    assert.ok(indexHtml.includes('id="heroScanMsg"'), 'index.html missing #heroScanMsg');
+    assert.ok(indexHtml.includes("sessionStorage.setItem('fp_contract'"), 'hero form must hand the contract text to the scan page via sessionStorage');
+  });
+
+  await t('js/scan.js: homepage contract handoff prefills the scan form', async () => {
+    const scanJs = fs.readFileSync(path.join(__dirname, '..', 'js', 'scan.js'), 'utf8');
+    assert.ok(scanJs.includes("sessionStorage.getItem('fp_contract')"), 'scan.js must read the fp_contract handoff');
+    assert.ok(scanJs.includes("sessionStorage.removeItem('fp_contract')"), 'scan.js must consume (not reuse) the handoff');
+  });
+
   await t('both pages: footer links only to X (thin profiles stay out)', async () => {
     for (const [name, html] of [['index', indexHtml], ['scan', scanHtml]]) {
       assert.ok(html.includes('href="https://x.com/fineprint247"'), name + ' footer missing X link');

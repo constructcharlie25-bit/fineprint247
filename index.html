@@ -124,11 +124,13 @@
   <div class="wrap">
     <h1>Find the risky clauses in your client contract &mdash; in 60 seconds.</h1>
     <p class="lede">FinePrint scores your MSA, SOW, or service agreement <strong>0&ndash;100</strong> and tells you exactly what to negotiate. A lawyer charges $300+ for this. <strong>See your risk score free.</strong></p>
-    <div class="hero-cta">
-      <a class="btn" href="/scan.html">Scan a contract free</a>
-      <a class="btn ghost" href="/scan.html?sample=1">Try a sample scan</a>
-      <a class="btn ghost" href="#why">Why not just use ChatGPT?</a>
-    </div>
+    <form class="hero-scan" id="heroScanForm">
+      <label class="hero-scan-label" for="heroContract">Paste your contract — get your free risk score</label>
+      <textarea id="heroContract" rows="4" placeholder="Paste your client contract here…"></textarea>
+      <button class="btn" type="submit">Get my free risk score</button>
+      <p class="form-msg" id="heroScanMsg" role="status"></p>
+    </form>
+    <p class="hero-alt">No contract handy? <a href="/scan.html?sample=1">Try a sample scan</a> &middot; <a href="#why">Why not just use ChatGPT?</a></p>
     <p class="hero-trust">No card required &middot; 60 seconds &middot; your contract is never used to train models</p>
     <div><span class="demo-note">They read the terms you can&rsquo;t negotiate. We read the contracts you can.</span></div>
   </div>
@@ -498,6 +500,27 @@ Thanks,
     // the email travels along so the user doesn't type it twice.
     window.location.href = '/scan.html?email=' + encodeURIComponent(email);
   });
+
+  // Hero embed: paste the contract right on the homepage. The text rides
+  // along in sessionStorage so the scan page opens with the contract
+  // already in the box — one step instead of two.
+  var heroForm = document.getElementById('heroScanForm');
+  if (heroForm) {
+    var heroText = document.getElementById('heroContract');
+    var heroMsg = document.getElementById('heroScanMsg');
+    heroForm.addEventListener('submit', function (e) {
+      e.preventDefault();
+      var text = (heroText.value || '').trim();
+      if (text.length < 200) {
+        heroMsg.textContent = 'Paste your full contract text — a few paragraphs at least — and we\u2019ll score it free.';
+        heroMsg.className = 'form-msg err';
+        heroText.focus();
+        return;
+      }
+      try { window.sessionStorage.setItem('fp_contract', text); } catch (err) { /* private mode: fall through */ }
+      window.location.href = '/scan.html?from=home';
+    });
+  }
 })();
 </script>
 </body>

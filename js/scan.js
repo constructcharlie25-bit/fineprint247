@@ -402,6 +402,10 @@
   // share, toasts) stay live.
   if (!textEl) return;
 
+  function updateCount() {
+    charCount.textContent = (textEl.value || '').length + ' characters';
+  }
+
   /* ---------- plan deep-link (?plan=single|pack|subscription) ---------- */
   // Homepage pricing buttons land here with ?plan=<mode>. Show a matching
   // purchase card at the top so the buyer's intent survives the hop —
@@ -464,6 +468,25 @@
     });
     if (planEmail && planEmail.scrollIntoView) banner.scrollIntoView({ block: 'start', behavior: 'smooth' });
     try { window.history.replaceState({}, '', window.location.pathname); } catch (e) { /* keep the param */ }
+  })();
+
+  /* ---------- homepage contract handoff (sessionStorage 'fp_contract') ---------- */
+  // The homepage hero lets visitors paste their contract before ever
+  // leaving the page. If they did, the text is waiting in sessionStorage:
+  // drop it into the contract box so they're one step (email) from a scan.
+  (function handleHomepageContract() {
+    var text = null;
+    try { text = window.sessionStorage.getItem('fp_contract'); } catch (e) { text = null; }
+    if (!text) return;
+    try { window.sessionStorage.removeItem('fp_contract'); } catch (e) { /* already gone */ }
+    textEl.value = text;
+    updateCount();
+    showToast('Your contract is pasted below — enter your email and hit "' + SCAN_BTN_LABEL + '".');
+    var emailField = document.getElementById('emailInput');
+    if (emailField) {
+      if (emailField.scrollIntoView) emailField.scrollIntoView({ block: 'center', behavior: 'smooth' });
+      try { emailField.focus({ preventScroll: true }); } catch (e) { emailField.focus(); }
+    }
   })();
 
   /* ---------- findings ---------- */
