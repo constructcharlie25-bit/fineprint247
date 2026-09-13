@@ -2163,7 +2163,12 @@ async function t(name, fn) {
     assert.ok(art.includes('fineprint247.com'), 'missing FinePrint mention');
     assert.ok(art.includes('rel="canonical" href="https://www.fineprint247.com/articles/consulting-retainer-agreement-red-flags.html"'), 'missing canonical');
     assert.ok(art.includes('datePublished'), 'missing Article schema date');
-    assert.ok(art.includes('"2026-10-14"'), 'article should be dated 2026-10-14');
+    // Article dates must never be in the future (audit 2026-09-13 caught
+    // five articles dated after today).
+    const pubMatch = art.match(/<time datetime="(20\d\d-\d\d-\d\d)">/);
+    assert.ok(pubMatch, 'article <time datetime> not found');
+    const todayIso = new Date().toISOString().slice(0, 10);
+    assert.ok(pubMatch[1] <= todayIso, 'article date ' + pubMatch[1] + ' is in the future (today: ' + todayIso + ')');
     assert.ok(art.includes('"@type": "FAQPage"'), 'missing FAQPage schema');
     for (const faq of ['Do unused retainer hours roll over', 'non-compete', 'pay-for-access']) {
       assert.ok(art.toLowerCase().includes(faq.toLowerCase()), 'missing FAQ topic: ' + faq);
@@ -2179,7 +2184,14 @@ async function t(name, fn) {
     const articlesIndex = fs.readFileSync(path.join(__dirname, '..', 'articles', 'index.html'), 'utf8');
     assert.ok(articlesIndex.includes('href="/articles/consulting-retainer-agreement-red-flags.html"'), 'index missing new article card');
     assert.ok(articlesIndex.indexOf('consulting-retainer-agreement-red-flags.html') < articlesIndex.indexOf('agency-msa-checklist.html'), 'new article should lead the list');
-    assert.ok(articlesIndex.includes('October 14, 2026'), 'index card should show October 14, 2026');
+    // Index card dates must never be in the future either.
+    const cardDates = [...articlesIndex.matchAll(/(January|February|March|April|May|June|July|August|September|October|November|December) (\d{1,2}), (20\d\d)/g)];
+    assert.ok(cardDates.length > 0, 'no article dates found on index');
+    const today = new Date(); today.setHours(0, 0, 0, 0);
+    for (const m of cardDates) {
+      const d = new Date(`${m[1]} ${m[2]}, ${m[3]}`);
+      assert.ok(d <= today, 'index card shows future date: ' + m[0]);
+    }
   });
 
   await t('Unlimited plan is framed for agencies', async () => {
