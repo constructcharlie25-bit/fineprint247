@@ -150,4 +150,84 @@ t('smoke: scan.js only touches known element ids', () => {
   }
 });
 
+function loadNavJs(sandbox) {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'nav.js'), 'utf8');
+  vm.createContext(sandbox);
+  vm.runInContext(src, sandbox, { filename: 'nav.js' });
+  return sandbox;
+}
+
+// Minimal DOM for the mobile menu: real classList toggle/contains semantics
+// and captured event listeners so the test can fire them.
+function makeNavSandbox({ withMenu }) {
+  function fakeClassList() {
+    const set = new Set();
+    return {
+      add(c) { set.add(c); },
+      remove(c) { set.delete(c); },
+      toggle(c, force) {
+        const on = force === undefined ? !set.has(c) : !!force;
+        if (on) set.add(c); else set.delete(c);
+        return on;
+      },
+      contains(c) { return set.has(c); },
+    };
+  }
+  function fakeEl() {
+    const listeners = {};
+    return {
+      classList: fakeClassList(),
+      hidden: true,
+      attrs: {},
+      addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+      setAttribute(k, v) { this.attrs[k] = v; },
+      getAttribute(k) { return this.attrs[k]; },
+      fire(type, e) { (listeners[type] || []).forEach((fn) => fn(e || { preventDefault() {} })); },
+      closest() { return null; },
+    };
+  }
+  const toggle = withMenu ? fakeEl() : null;
+  const menu = withMenu ? fakeEl() : null;
+  const docListeners = {};
+  const sandbox = {
+    document: {
+      getElementById(id) {
+        if (id === 'navToggle') return toggle;
+        if (id === 'mobileMenu') return menu;
+        return null;
+      },
+      addEventListener(type, fn) { (docListeners[type] = docListeners[type] || []).push(fn); },
+      body: fakeEl(),
+      fire(type, e) { (docListeners[type] || []).forEach((fn) => fn(e || {})); },
+    },
+    console,
+  };
+  return { sandbox, toggle, menu };
+}
+
+t('smoke: nav.js loads without throwing when the mobile menu is absent', () => {
+  loadNavJs(makeNavSandbox({ withMenu: false }).sandbox);
+});
+
+t('smoke: nav.js toggles the mobile menu open and closed', () => {
+  const { sandbox, toggle, menu } = makeNavSandbox({ withMenu: true });
+  loadNavJs(sandbox);
+  toggle.fire('click');
+  assert.ok(menu.classList.contains('open'), 'menu must gain .open on first tap');
+  assert.strictEqual(menu.hidden, false, 'menu must not be hidden when open');
+  assert.strictEqual(toggle.getAttribute('aria-expanded'), 'true');
+  toggle.fire('click');
+  assert.ok(!menu.classList.contains('open'), 'menu must lose .open on second tap');
+  assert.strictEqual(menu.hidden, true, 'menu must be hidden when closed');
+});
+
+t('smoke: nav.js closes the mobile menu on Escape', () => {
+  const { sandbox, toggle, menu } = makeNavSandbox({ withMenu: true });
+  loadNavJs(sandbox);
+  toggle.fire('click');
+  assert.ok(menu.classList.contains('open'), 'precondition: menu open');
+  sandbox.document.fire('keydown', { key: 'Escape' });
+  assert.ok(!menu.classList.contains('open'), 'Escape must close the menu');
+});
+
 console.log(`\n${passed} smoke tests passed.`);

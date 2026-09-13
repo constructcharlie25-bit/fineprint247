@@ -524,6 +524,29 @@ input[type=file]::file-selector-button:hover { border-color: var(--accent); }
   }
 }
 
+/* Mobile hamburger menu */
+.nav-toggle { display: none; }
+.mobile-menu { display: none; }
+@media (max-width: 640px) {
+  .nav-toggle {
+    display: inline-flex; flex-direction: column; justify-content: center; gap: 5px;
+    background: none; border: 0; padding: 12px 8px; cursor: pointer;
+  }
+  .nav-toggle span { display: block; width: 22px; height: 2px; background: var(--ink); border-radius: 2px; }
+  .mobile-menu {
+    position: fixed; top: 60px; left: 0; right: 0; z-index: 60;
+    background: rgba(10,14,39,.98); border-bottom: 1px solid var(--line);
+    padding: 8px 20px 16px; flex-direction: column;
+  }
+  .mobile-menu.open { display: flex; }
+  .mobile-menu a {
+    color: var(--ink); text-decoration: none; font-size: 1.05rem; font-weight: 600;
+    padding: 13px 4px; border-bottom: 1px solid var(--line);
+  }
+  .mobile-menu a:last-child { border-bottom: 0; }
+  body.menu-open { overflow: hidden; }
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   .steps, .pricing, .pricing.three, .checks { grid-template-columns: 1fr; }
