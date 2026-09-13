@@ -2220,5 +2220,26 @@ async function t(name, fn) {
     }
   });
 
+  await t('all pages: footer links Privacy and Terms present (audit 2026-09-13)', async () => {
+    const pages = [
+      ['index.html', indexHtml],
+      ['scan.html', scanHtml],
+      ['privacy.html', fs.readFileSync(path.join(__dirname, '..', 'privacy.html'), 'utf8')],
+      ['terms.html', fs.readFileSync(path.join(__dirname, '..', 'terms.html'), 'utf8')],
+      ['articles/index.html', fs.readFileSync(path.join(__dirname, '..', 'articles', 'index.html'), 'utf8')],
+    ];
+    const articlesDir = path.join(__dirname, '..', 'articles');
+    for (const f of fs.readdirSync(articlesDir)) {
+      if (f.endsWith('.html') && f !== 'index.html') {
+        pages.push(['articles/' + f, fs.readFileSync(path.join(articlesDir, f), 'utf8')]);
+      }
+    }
+    for (const [name, html] of pages) {
+      const footer = html.slice(html.indexOf('<footer'));
+      assert.ok(footer.includes('href="/privacy.html"'), name + ' footer missing Privacy link');
+      assert.ok(footer.includes('href="/terms.html"'), name + ' footer missing Terms link');
+    }
+  });
+
   console.log(`\n${passed} tests passed${process.exitCode ? ' (WITH FAILURES)' : ''}.`);
 })();
