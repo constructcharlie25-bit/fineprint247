@@ -600,3 +600,13 @@ input[type=file]::file-selector-button:hover { border-color: var(--accent); }
 .share-meta { font-size: 1.05rem; color: var(--muted); font-weight: 600; }
 .share-note { color: var(--muted); font-size: .9rem; margin: 0 0 14px; }
 .share-actions { display: flex; gap: 10px; flex-wrap: wrap; }
+
+/* Legal pages */
+.legal { max-width: 760px; padding: 3rem 1.25rem 4rem; }
+.legal h1 { font-size: 2rem; margin-bottom: 0.25rem; }
+.legal h2 { font-size: 1.25rem; margin: 2rem 0 0.75rem; }
+.legal p, .legal li { line-height: 1.65; }
+.legal ul { padding-left: 1.25rem; }
+.legal li { margin-bottom: 0.5rem; }
+.muted { color: var(--muted, #8a8a8a); }
+footer a { color: inherit; }
