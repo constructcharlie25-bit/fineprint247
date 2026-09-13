@@ -610,3 +610,6 @@ input[type=file]::file-selector-button:hover { border-color: var(--accent); }
 .legal li { margin-bottom: 0.5rem; }
 .muted { color: var(--muted, #8a8a8a); }
 footer a { color: inherit; }
+
+/* Section citation tag on findings */
+.flag-section { font-size: 0.8rem; font-weight: 600; color: var(--muted, #8a8a8a); margin-left: 8px; white-space: nowrap; }

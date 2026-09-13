@@ -508,11 +508,13 @@
         '<div class="flag-head">' +
           '<span class="risk ' + esc(sev) + '">' + esc(sev) + ' risk</span>' +
           '<h3>' + esc(f.title || 'Flagged clause') + '</h3>' +
+          (f.section ? '<span class="flag-section">' + esc(f.section) + '</span>' : '') +
         '</div>' +
         '<blockquote class="clause">&ldquo;' + esc(f.clause || '') + '&rdquo;</blockquote>' +
         '<p><strong>Why it matters:</strong> ' + esc(f.risk || '') + '</p>' +
         (f.plainEnglish ? '<p><strong>In plain English:</strong> ' + esc(f.plainEnglish) + '</p>' : '') +
         (f.negotiation ? '<p><strong>What to negotiate:</strong> ' + esc(f.negotiation) + '</p>' : '') +
+        (f.redline ? '<p><strong>Suggested redline:</strong></p><blockquote class="clause clause-fix">' + esc(f.redline) + '</blockquote>' : '') +
         negEmailHtml +
         (f.legalReview
           ? '<p class="lawyer-nudge">&#9878; This one is worth a quick lawyer review before you sign.</p>'
@@ -740,10 +742,12 @@
     (data.flags || []).forEach(function (f, i) {
       lines.push('---');
       lines.push('FINDING ' + (i + 1) + ' [' + String(f.severity || '').toUpperCase() + '] ' + (f.title || ''));
+      if (f.section) lines.push('Location: ' + f.section);
       lines.push('Clause: "' + (f.clause || '') + '"');
       lines.push('Why it matters: ' + (f.risk || ''));
       if (f.plainEnglish) lines.push('In plain English: ' + f.plainEnglish);
       if (f.negotiation) lines.push('What to negotiate: ' + f.negotiation);
+      if (f.redline) lines.push('Suggested redline: ' + f.redline);
       if (f.negotiationEmail && f.negotiationEmail.body) {
         lines.push('');
         lines.push('PUSHBACK EMAIL (copy-paste):');
