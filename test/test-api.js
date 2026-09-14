@@ -2041,12 +2041,11 @@ async function t(name, fn) {
     assert.ok(scanHtml.includes('id="sharePanelBody"'), 'missing sharePanelBody');
   });
 
-  await t('index.html: promo video embed next to the sample report', async () => {
-    assert.ok(indexHtml.includes('https://www.youtube-nocookie.com/embed/KkMJ0h-w7sU'), 'missing nocookie video embed');
-    assert.ok(indexHtml.includes('class="video-wrap"'), 'missing responsive video wrapper');
-    assert.ok(indexHtml.includes('loading="lazy"'), 'video iframe should lazy-load');
-    assert.ok(indexHtml.includes('title="FinePrint'), 'video iframe needs a title attribute');
-    assert.ok(!indexHtml.includes('autoplay=1'), 'video must not autoplay');
+  await t('index.html: no promo video embed (removed 2026-09-14)', async () => {
+    assert.ok(!indexHtml.includes('class="video-card"'), 'video-card block still present');
+    assert.ok(!indexHtml.includes('class="video-wrap"'), 'video-wrap block still present');
+    assert.ok(!indexHtml.includes('youtube-nocookie.com/embed'), 'youtube embed still present');
+    assert.ok(!indexHtml.includes('KkMJ0h-w7sU'), 'promo video id still present');
   });
 
   await t('index.html: hero has a one-click sample-scan CTA', async () => {
