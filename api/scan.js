@@ -40,6 +40,7 @@ const {
 } = require('../lib/entitlements');
 const { sealUnlockToken } = require('../lib/token');
 const { checkRateLimit, clientIp, _reset } = require('../lib/ratelimit');
+const { countFunnelEvent } = require('../lib/metrics');
 
 const SCAN_LIMIT = 20;
 const SCAN_WINDOW_MS = 10 * 60 * 1000;
@@ -331,6 +332,11 @@ module.exports = async (req, res) => {
         'We could not start your free risk score right now. Please try again in a moment — you have not been charged and nothing was claimed.',
     });
   }
+
+  // Funnel instrumentation (aggregate count only, no PII): a free
+  // risk-score teaser was successfully issued. Awaited but never throws,
+  // so metrics can never break the scan response.
+  await countFunnelEvent('free_scan');
 
   return res.status(200).json(teaser);
 };

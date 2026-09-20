@@ -2018,8 +2018,8 @@ async function t(name, fn) {
 
   await t('index.html: red flag of the week uses the drafted teardown copy', async () => {
     assert.ok(indexHtml.includes('Red flag of the week'), 'missing section kicker');
-    assert.ok(indexHtml.includes('pre-existing intellectual property'), 'missing the clause');
-    assert.ok(indexHtml.includes('excluding Contractor&rsquo;s pre-existing materials'), 'missing the negotiation fix');
+    assert.ok(indexHtml.includes('indemnify, defend, and hold harmless'), 'missing the clause');
+    assert.ok(indexHtml.includes('shall not exceed the fees paid to Contractor hereunder'), 'missing the negotiation fix');
     assert.ok(indexHtml.includes('isn&rsquo;t legal advice'), 'missing legal disclaimer');
     assert.ok(indexHtml.includes('href="/scan.html"'), 'missing scan CTA');
   });
@@ -2238,6 +2238,162 @@ async function t(name, fn) {
       assert.ok(footer.includes('href="/privacy.html"'), name + ' footer missing Privacy link');
       assert.ok(footer.includes('href="/terms.html"'), name + ' footer missing Terms link');
     }
+  });
+
+  /* ---------------- funnel metrics (lib/metrics + api/metrics) ---------------- */
+  console.log('funnel metrics');
+  const { countFunnelEvent, funnelKey, kvConfig, FUNNEL_EVENTS } = require('../lib/metrics');
+  const metricsRoute = require('../api/metrics');
+
+  function captureLogs() {
+    const lines = [];
+    const orig = console.log;
+    console.log = (...args) => { lines.push(args.join(' ')); };
+    return { lines, restore() { console.log = orig; } };
+  }
+  function saveKvEnv() {
+    return { url: process.env.KV_REST_API_URL, token: process.env.KV_REST_API_TOKEN };
+  }
+  function clearKvEnv() {
+    delete process.env.KV_REST_API_URL;
+    delete process.env.KV_REST_API_TOKEN;
+  }
+  function restoreKvEnv(saved) {
+    if (saved.url === undefined) delete process.env.KV_REST_API_URL;
+    else process.env.KV_REST_API_URL = saved.url;
+    if (saved.token === undefined) delete process.env.KV_REST_API_TOKEN;
+    else process.env.KV_REST_API_TOKEN = saved.token;
+  }
+
+  await t('funnelKey namespaces counters', async () => {
+    assert.strictEqual(funnelKey('free_scan'), 'fineprint:funnel:free_scan');
+    assert.strictEqual(funnelKey('paid_unlock'), 'fineprint:funnel:paid_unlock');
+    assert.ok(FUNNEL_EVENTS.has('free_scan') && FUNNEL_EVENTS.has('paid_unlock'));
+  });
+
+  await t('countFunnelEvent: log fallback emits one structured line, no PII', async () => {
+    const kv = saveKvEnv(); clearKvEnv();
+    const cap = captureLogs();
+    try {
+      await countFunnelEvent('free_scan');
+      assert.strictEqual(cap.lines.length, 1);
+      const line = JSON.parse(cap.lines[0]);
+      assert.strictEqual(line.src, 'fineprint-funnel');
+      assert.strictEqual(line.event, 'free_scan');
+      assert.ok(!isNaN(Date.parse(line.ts)), 'ts must be an ISO date');
+      assert.ok(!('email' in line) && !('ip' in line), 'no PII in marker line');
+    } finally { cap.restore(); restoreKvEnv(kv); }
+  });
+
+  await t('countFunnelEvent: unknown events are ignored silently', async () => {
+    const kv = saveKvEnv(); clearKvEnv();
+    const cap = captureLogs();
+    try {
+      await countFunnelEvent('bogus_event');
+      assert.strictEqual(cap.lines.length, 0);
+    } finally { cap.restore(); restoreKvEnv(kv); }
+  });
+
+  await t('countFunnelEvent: KV INCR used when configured (stubbed fetch)', async () => {
+    const kv = saveKvEnv();
+    const realFetch = global.fetch;
+    const cap = captureLogs();
+    let seen = null;
+    global.fetch = async (url, opts) => {
+      seen = { url, opts };
+      return { ok: true, json: async () => ({ result: 8 }) };
+    };
+    process.env.KV_REST_API_URL = 'https://kv.example.upstash.io';
+    process.env.KV_REST_API_TOKEN = 'tok_test';
+    try {
+      await countFunnelEvent('paid_unlock');
+      assert.ok(seen, 'fetch not called');
+      assert.strictEqual(seen.url, 'https://kv.example.upstash.io/incr/fineprint%3Afunnel%3Apaid_unlock');
+      assert.strictEqual(seen.opts.method, 'POST');
+      assert.strictEqual(seen.opts.headers.Authorization, 'Bearer tok_test');
+      assert.strictEqual(cap.lines.length, 0, 'no log line when KV succeeds');
+      assert.strictEqual(kvConfig().url, 'https://kv.example.upstash.io');
+    } finally { global.fetch = realFetch; cap.restore(); restoreKvEnv(kv); }
+  });
+
+  await t('countFunnelEvent: KV failure falls back to log line, never throws', async () => {
+    const kv = saveKvEnv();
+    const realFetch = global.fetch;
+    const cap = captureLogs();
+    global.fetch = async () => { throw new Error('network down'); };
+    process.env.KV_REST_API_URL = 'https://kv.example.upstash.io';
+    process.env.KV_REST_API_TOKEN = 'tok_test';
+    try {
+      await countFunnelEvent('free_scan'); // must not throw
+      assert.strictEqual(cap.lines.length, 1);
+      assert.strictEqual(JSON.parse(cap.lines[0]).event, 'free_scan');
+    } finally { global.fetch = realFetch; cap.restore(); restoreKvEnv(kv); }
+  });
+
+  await t('GET /api/metrics: log-fallback payload when KV not configured', async () => {
+    const kv = saveKvEnv(); clearKvEnv();
+    try {
+      const res = mockRes();
+      await metricsRoute({ method: 'GET' }, res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.mode, 'log-fallback');
+      assert.strictEqual(res.body.free_scans, null);
+      assert.strictEqual(res.body.paid_unlocks, null);
+      assert.ok(res.body.how_to_read.includes('fineprint-funnel'));
+    } finally { restoreKvEnv(kv); }
+  });
+
+  await t('GET /api/metrics: live counters from KV (stubbed fetch)', async () => {
+    const kv = saveKvEnv();
+    const realFetch = global.fetch;
+    let seenUrl = null;
+    global.fetch = async (url, opts) => {
+      seenUrl = url;
+      assert.strictEqual(opts.headers.Authorization, 'Bearer tok_test');
+      return { ok: true, json: async () => ({ result: ['12', '3'] }) };
+    };
+    process.env.KV_REST_API_URL = 'https://kv.example.upstash.io';
+    process.env.KV_REST_API_TOKEN = 'tok_test';
+    try {
+      const res = mockRes();
+      await metricsRoute({ method: 'GET' }, res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(res.body.mode, 'kv');
+      assert.strictEqual(res.body.free_scans, 12);
+      assert.strictEqual(res.body.paid_unlocks, 3);
+      assert.ok(seenUrl.includes('/mget/fineprint%3Afunnel%3Afree_scan/fineprint%3Afunnel%3Apaid_unlock'));
+    } finally { global.fetch = realFetch; restoreKvEnv(kv); }
+  });
+
+  await t('POST /api/metrics -> 405', async () => {
+    const res = mockRes();
+    await metricsRoute({ method: 'POST' }, res);
+    assert.strictEqual(res.statusCode, 405);
+  });
+
+  await t('webhook payment completion records a paid_unlock funnel event', async () => {
+    const saved = saveEnv();
+    const kv = saveKvEnv(); clearKvEnv();
+    process.env.STRIPE_SECRET_KEY = 'sk_test_fake';
+    process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test';
+    const db = { 'buyer2@example.com': { id: 'cus_11', metadata: { fp_credits: '0' } } };
+    mockStripe(makeFakeStripe(db));
+    const cap = captureLogs();
+    try {
+      const event = {
+        id: 'evt_m1', type: 'checkout.session.completed',
+        data: { object: { id: 'cs_m1', mode: 'payment', customer: 'cus_11', customer_email: 'buyer2@example.com' } },
+      };
+      const res = mockRes();
+      await webhook(streamReq(JSON.stringify(event), { 'stripe-signature': 'sig_valid' }), res);
+      assert.strictEqual(res.statusCode, 200);
+      assert.strictEqual(db['buyer2@example.com'].metadata.fp_credits, '1');
+      const funnelLines = cap.lines.map((l) => {
+        try { return JSON.parse(l); } catch (e) { return null; }
+      }).filter(Boolean);
+      const paid = funnelLines.filter((l) => l.src === 'fineprint-funnel' && l.event === 'paid_unlock');
+      assert.strictEqual(paid.length, 1, 'expected exactly one paid_unlock marker line');
+    } finally { cap.restore(); unmockStripe(); restoreEnv(saved); restoreKvEnv(kv); }
   });
 
   console.log(`\n${passed} tests passed${process.exitCode ? ' (WITH FAILURES)' : ''}.`);

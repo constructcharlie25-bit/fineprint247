@@ -33,6 +33,7 @@ const ROUTES = {
   '/api/checkout': require('../api/checkout'),
   '/api/webhook': require('../api/webhook'),
   '/api/tiers': require('../api/tiers'),
+  '/api/metrics': require('../api/metrics'),
 };
 
 const TYPES = {

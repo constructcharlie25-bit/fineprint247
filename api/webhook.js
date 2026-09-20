@@ -32,6 +32,7 @@ const {
   markEverPaid,
   normalizeEmail,
 } = require('../lib/entitlements');
+const { countFunnelEvent } = require('../lib/metrics');
 
 /** Read the raw request body as a Buffer. */
 function readRawBody(req) {
@@ -84,8 +85,15 @@ async function handleEvent(stripe, event) {
         // who later spends their last credit is still a paying customer,
         // not a free-teaser user.
         await markEverPaid(customerId);
+        // Funnel instrumentation (aggregate count only, no PII): Stripe
+        // confirmed a paid report purchase. Counted only after the
+        // entitlement write succeeded. Never throws.
+        await countFunnelEvent('paid_unlock');
       } else if (obj.mode === 'subscription') {
         await setSubscriptionActive(customerId, true);
+        // A new subscription also grants full-report access — count it as
+        // a paid unlock.
+        await countFunnelEvent('paid_unlock');
       }
       return;
     }
