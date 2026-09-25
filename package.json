@@ -12,7 +12,7 @@
   "private": true,
   "scripts": {
     "dev": "vercel dev",
-    "test": "node test/test-api.js && node test/test-frontend-smoke.js"
+    "test": "node test/test-api.js && node test/test-frontend-smoke.js && node test/test-quality-bar.js"
   },
   "version": "0.1.0"
 }
