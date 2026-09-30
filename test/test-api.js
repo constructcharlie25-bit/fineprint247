@@ -2016,11 +2016,11 @@ async function t(name, fn) {
     }
   });
 
-  await t('index.html: red flag of the week (#3) uses the drafted teardown copy', async () => {
+  await t('index.html: red flag of the week (#4) uses the drafted teardown copy', async () => {
     assert.ok(indexHtml.includes('Red flag of the week'), 'missing section kicker');
-    assert.ok(indexHtml.includes('Red flag of the week &middot; #3'), 'wrong rotation number');
-    assert.ok(indexHtml.includes('within sixty (60) days of receipt'), 'missing the clause');
-    assert.ok(indexHtml.includes('accrue interest at 1.5% per month'), 'missing the negotiation fix');
+    assert.ok(indexHtml.includes('Red flag of the week &middot; #4'), 'wrong rotation number');
+    assert.ok(indexHtml.includes('upon five (5) days&rsquo; written notice'), 'missing the clause');
+    assert.ok(indexHtml.includes('termination fee equal to twenty-five percent'), 'missing the negotiation fix');
     assert.ok(indexHtml.includes('isn&rsquo;t legal advice'), 'missing legal disclaimer');
     assert.ok(indexHtml.includes('href="/scan.html"'), 'missing scan CTA');
   });
