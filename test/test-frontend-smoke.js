@@ -231,3 +231,58 @@ t('smoke: nav.js closes the mobile menu on Escape', () => {
 });
 
 console.log(`\n${passed} smoke tests passed.`);
+
+// ---- pushback.js (free pushback email copy buttons, 2026-10-04) ----
+function loadPushbackJs(sandbox) {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'pushback.js'), 'utf8');
+  vm.createContext(sandbox);
+  vm.runInContext(src, sandbox, { filename: 'pushback.js' });
+  return sandbox;
+}
+
+function makePushbackSandbox({ withButton, clipboardText }) {
+  let copied = null;
+  const listeners = {};
+  const btn = withButton ? {
+    addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+    setAttribute() {},
+    fire(type) { (listeners[type] || []).forEach((fn) => fn()); },
+  } : null;
+  const src = withButton ? { innerText: 'EMAIL-TEMPLATE-TEXT', textContent: 'EMAIL-TEMPLATE-TEXT' } : null;
+  const msg = withButton ? { textContent: '', className: '' } : null;
+  const sandbox = {
+    document: {
+      getElementById(id) {
+        if (id === 'copyEmailBtn') return btn;
+        if (id === 'pushbackEmail') return src;
+        if (id === 'copyEmailMsg') return msg;
+        return null;
+      },
+      createElement() { return { style: {}, select() {}, value: '' }; },
+      body: { appendChild() {}, removeChild() {} },
+    },
+    navigator: clipboardText === null ? {} : {
+      clipboard: { writeText(t) { copied = t; return Promise.resolve(); } },
+    },
+    console,
+  };
+  return { sandbox, btn, getCopied: () => copied };
+}
+
+t('smoke: pushback.js loads without throwing when the copy button is absent (page guard)', () => {
+  loadPushbackJs(makePushbackSandbox({ withButton: false }).sandbox);
+});
+
+t('smoke: pushback.js loads without throwing when the copy button is present', () => {
+  loadPushbackJs(makePushbackSandbox({ withButton: true, clipboardText: '' }).sandbox);
+});
+
+t('smoke: pushback.js copy button writes the email text via navigator.clipboard', () => {
+  const { sandbox, btn, getCopied } = makePushbackSandbox({ withButton: true, clipboardText: '' });
+  loadPushbackJs(sandbox);
+  btn.fire('click');
+  // Fake clipboard captures synchronously; no await needed.
+  assert.strictEqual(getCopied(), 'EMAIL-TEMPLATE-TEXT', 'clipboard must receive the email text');
+});
+
+console.log(`\n${passed} total smoke tests passed (incl. pushback).`);

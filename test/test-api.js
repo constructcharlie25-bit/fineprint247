@@ -1966,6 +1966,18 @@ async function t(name, fn) {
   const indexHtml = fs.readFileSync(path.join(__dirname, '..', 'index.html'), 'utf8');
   const scanHtml = fs.readFileSync(path.join(__dirname, '..', 'scan.html'), 'utf8');
 
+  // Pushback section pages: pushback/index.html + pushback/<slug>/index.html
+  function pushbackPages() {
+    const out = [];
+    const dir = path.join(__dirname, '..', 'pushback');
+    out.push(['pushback/index.html', fs.readFileSync(path.join(dir, 'index.html'), 'utf8')]);
+    for (const f of fs.readdirSync(dir)) {
+      if (f === 'index.html' || f.startsWith('.')) continue;
+      out.push(['pushback/' + f + '/index.html', fs.readFileSync(path.join(dir, f, 'index.html'), 'utf8')]);
+    }
+    return out;
+  }
+
   await t('index.html: methodology section explains the review honestly', async () => {
     assert.ok(indexHtml.includes('id="method"'), 'missing #method section');
     assert.ok(indexHtml.includes('Two-pass review'), 'two-pass method not described');
@@ -2211,6 +2223,7 @@ async function t(name, fn) {
         pages.push(['articles/' + f, fs.readFileSync(path.join(articlesDir, f), 'utf8')]);
       }
     }
+    pages.push(...pushbackPages());
     assert.ok(pages.length >= 8, 'expected at least 8 pages, found ' + pages.length);
     for (const [name, html] of pages) {
       assert.ok(html.includes('/_vercel/insights/script.js'), name + ' missing Vercel Insights script');
@@ -2234,11 +2247,81 @@ async function t(name, fn) {
         pages.push(['articles/' + f, fs.readFileSync(path.join(articlesDir, f), 'utf8')]);
       }
     }
+    pages.push(...pushbackPages());
     for (const [name, html] of pages) {
       const footer = html.slice(html.indexOf('<footer'));
       assert.ok(footer.includes('href="/privacy.html"'), name + ' footer missing Privacy link');
       assert.ok(footer.includes('href="/terms.html"'), name + ' footer missing Terms link');
     }
+  });
+
+  /* ---------------- pushback section guards (2026-10-04) ---------------- */
+  console.log('pushback section');
+
+  await t('pushback: index + 5 clause pages exist', async () => {
+    const pages = pushbackPages();
+    assert.strictEqual(pages.length, 6, 'expected 6 pushback pages, found ' + pages.length);
+    const names = pages.map(([n]) => n);
+    for (const slug of ['net-60-payment-terms', 'termination-without-kill-fee', 'uncapped-liability', 'ip-assignment-grab', 'non-compete-clause']) {
+      assert.ok(names.includes('pushback/' + slug + '/index.html'), 'missing clause page: ' + slug);
+    }
+  });
+
+  await t('pushback: every page has title, meta description, canonical', async () => {
+    for (const [name, html] of pushbackPages()) {
+      const title = (html.match(/<title>([^<]+)<\/title>/) || [])[1] || '';
+      assert.ok(title.length > 20 && title.includes('FinePrint'), name + ' title missing/weak');
+      assert.ok(html.includes('name="description"'), name + ' missing meta description');
+      assert.ok(html.includes('rel="canonical" href="https://www.fineprint247.com/pushback/'), name + ' missing canonical');
+    }
+  });
+
+  await t('pushback: clause pages have email block, copy button, CTA, disclaimer', async () => {
+    for (const [name, html] of pushbackPages()) {
+      if (name === 'pushback/index.html') continue;
+      assert.ok(html.includes('id="pushbackEmail"'), name + ' missing email template block');
+      assert.ok(html.includes('id="copyEmailBtn"'), name + ' missing copy button');
+      assert.ok(html.includes('src="/js/pushback.js"'), name + ' missing pushback.js');
+      assert.ok(html.includes('href="/scan.html"'), name + ' missing CTA to /scan.html');
+      assert.ok(/not legal advice/i.test(html), name + ' missing not-legal-advice microcopy');
+    }
+  });
+
+  await t('pushback: index links all 5 clause pages', async () => {
+    const index = pushbackPages().find(([n]) => n === 'pushback/index.html')[1];
+    for (const slug of ['net-60-payment-terms', 'termination-without-kill-fee', 'uncapped-liability', 'ip-assignment-grab', 'non-compete-clause']) {
+      assert.ok(index.includes('href="/pushback/' + slug + '/"'), 'index missing card link: ' + slug);
+    }
+  });
+
+  await t('pushback: no email capture, no signup, no accounts', async () => {
+    for (const [name, html] of pushbackPages()) {
+      assert.ok(!/type="email"/i.test(html), name + ' must not contain an email input');
+      assert.ok(!/type="password"/i.test(html), name + ' must not contain a password input');
+      assert.ok(!/<form/i.test(html), name + ' must not contain any form');
+    }
+  });
+
+  await t('pushback: no em-dashes anywhere (copy bar)', async () => {
+    for (const [name, html] of pushbackPages()) {
+      assert.ok(!/\u2014/.test(html), name + ' contains a literal em-dash');
+      assert.ok(!/&mdash;/.test(html), name + ' contains &mdash;');
+      assert.ok(!/&#8212;/.test(html), name + ' contains &#8212;');
+    }
+  });
+
+  await t('pushback: no fabricated social proof or metrics', async () => {
+    for (const [name, html] of pushbackPages()) {
+      const text = html.replace(/<[^>]+>/g, ' ');
+      assert.ok(!/\d[\d,]*\+?\s*(contracts scanned|happy customers|reviews)/i.test(text), name + ' fabricated metric');
+      assert.ok(!/testimonial/i.test(text), name + ' testimonial mention');
+      assert.ok(!/trusted by/i.test(text), name + ' fabricated trust claim');
+    }
+  });
+
+  await t('pushback: nav links to /pushback/ on index and scan pages', async () => {
+    assert.ok(indexHtml.includes('href="/pushback/"'), 'index nav missing /pushback/ link');
+    assert.ok(scanHtml.includes('href="/pushback/"'), 'scan nav missing /pushback/ link');
   });
 
   /* ---------------- funnel metrics (lib/metrics + api/metrics) ---------------- */
